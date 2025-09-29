@@ -18,9 +18,9 @@ Looking for a reliable VPS or dedicated server for CS2?
 
 ## 🖥 Requirements
 
-- **OS**: Ubuntu 22.04 or 24.04 (fresh VPS or dedicated server recommended)  
+- **OS**: Ubuntu 24.04 (fresh VPS or dedicated server recommended)  
 - **RAM**: 4 GB minimum (8 GB+ recommended)  
-- **Disk**: ~35 GB free  
+- **Disk**: ~80 GB free  
 - **User**: Non-root user (e.g. `cs2server`)  
 
 ---
