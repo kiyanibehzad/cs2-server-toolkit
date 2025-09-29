@@ -1,6 +1,6 @@
 # CS2 Server Toolkit
 
-<img width="565" height="501" alt="image" src="https://github.com/user-attachments/assets/0c8b99c2-a925-4b59-95ed-519a2ae5d222" />
+<img width="525" height="461" alt="image" src="https://github.com/user-attachments/assets/91c7ace9-3a5e-4b32-abe8-4c19c194581c" />
 
 
 ⚡ One-command installer & admin toolkit for Counter-Strike 2 dedicated servers.  
