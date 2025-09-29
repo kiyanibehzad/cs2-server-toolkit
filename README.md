@@ -1,12 +1,13 @@
 # CS2 Server Toolkit
+One-command installer for a Counter-Strike 2 dedicated server (systemd user service, admin menu, safe auto-update).
 
-One-command installer for Counter-Strike 2 dedicated server:
-- systemd user-level service (auto-start with linger)
-- interactive admin menu (replace placeholder with your full script)
-- safe auto-update timers (no mid-game restart)
-
-Quick start after push:
+Quick start:
   chmod +x install.sh
-  ./install.sh --user cs2server --host-ip 89.42.44.200 --rcon-pass '5lZM29Zkc7rP'
-Run admin menu:
-  ~/admin-cs2
+  ./install.sh
+During installation you will be prompted for:
+  - Linux username (e.g. cs2server)
+  - Public IP (e.g. 1.2.3.4)
+  - Port (default: 27015)
+  - RCON password
+  - Server name
+
