@@ -1,0 +1,11 @@
+[Unit]
+Description=Run CS2 safe update check every 30 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+Unit=cs2-checkupdate.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

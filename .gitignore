@@ -1,0 +1,9 @@
+game/
+content/
+steamapps/
+backups/
+*.tar.gz
+.env
+*.log
+*.swp
+.DS_Store

@@ -1,0 +1,20 @@
+[Unit]
+Description=CS2 Dedicated Server (user)
+After=network-online.target nss-user-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/systemd/user/cs2-ds.env
+WorkingDirectory=%h/cs2-ds
+ExecStartPre=/bin/sleep 7
+ExecStart=/bin/bash -lc 'exec %h/cs2-ds/start.sh'
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

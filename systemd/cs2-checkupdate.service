@@ -1,0 +1,6 @@
+[Unit]
+Description=CS2 safe update check (no mid-game restart)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -lc '/home/CS2USER/cs2-ds/cs2-safe-update.sh'

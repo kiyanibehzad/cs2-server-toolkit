@@ -1,0 +1,10 @@
+[Unit]
+Description=Run CS2 update daily at 06:00
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+Persistent=true
+Unit=cs2-update.service
+
+[Install]
+WantedBy=timers.target
