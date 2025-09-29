@@ -1,18 +1,29 @@
 #!/bin/bash
 # CS2 Admin Toolkit (maps, admin ops, bans, modes, weapons block, chickens)
+# Reads config from /home/<user>/cs2-ds/.update.env if present.
 # English-only comments. User-level systemd control (no sudo) friendly.
 # Adds: T) Safe update now, t) Update timer status
+
 set -uo pipefail
 
 # ---------- CONFIG ----------
-RCON_HOST="185.223.160.201"
-RCON_PORT="27015"
-RCON_PASS="NetafraZ123!"
-CS2_DIR="/home/cs2server/cs2-ds"
-STEAMCMD="/home/cs2server/steamcmd/steamcmd.sh"
-SERVICE_NAME="cs2-ds"      # user-level systemd unit (without .service)
+# Load values from installer (if present)
+CS2_USER="${CS2_USER:-$(id -un)}"
+CS2_HOME="${CS2_HOME:-/home/$CS2_USER}"
+CS2_DIR="${CS2_DIR:-$CS2_HOME/cs2-ds}"
+CONF="$CS2_DIR/.update.env"
+[[ -f "$CONF" ]] && . "$CONF"
+
+# RCON / networking (fallbacks if not set in .update.env)
+RCON_HOST="${HOST_IP:-127.0.0.1}"
+RCON_PORT="${PORT:-27015}"
+RCON_PASS="${RCON_PASS:-ChangeMe123!}"
+
+# Paths and service
+STEAMCMD="${STEAMCMD:-$CS2_HOME/steamcmd/steamcmd.sh}"
+SERVICE_NAME="${SERVICE_NAME:-cs2-ds}"   # user-level systemd unit (without .service)
 BACKUP_DIR="$CS2_DIR/backups"
-STRICT_CHECK=1
+STRICT_CHECK=${STRICT_CHECK:-1}
 
 # Weapon cfg names (created if missing)
 CFG_WEAPONS_DEFAULT="weapons_all_default.cfg"
@@ -178,7 +189,7 @@ backup_cfg() {
 
 # ---------- SAFE UPDATE INTEGRATION ----------
 safe_update_now() {
-  local script="/home/cs2server/cs2-ds/cs2-safe-update.sh"
+  local script="$CS2_DIR/cs2-safe-update.sh"
   if [[ -x "$script" ]]; then
     /bin/bash -lc "$script"
   else
@@ -211,7 +222,7 @@ unban_select() {
 
 # ---------- MODES ----------
 set_mode_core() { rcon "game_type $1"; rcon "game_mode $2"; }
-# Competitive MR12 (13-win, OT 3+3); no 5v5 enforcement
+# Competitive MR12 (13-win, OT 3+3); no 5v5 hard cap
 set_mode_competitive_MR12() {
   set_mode_core 0 1
   rcon "exec gamemode_competitive.cfg" || true
