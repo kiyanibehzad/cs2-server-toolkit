@@ -77,8 +77,6 @@ Looking for a reliable VPS or dedicated server for CS2?
 
 ---
 
----
-
 ## ⚙️ Custom game mode configs (`*_server.cfg`)
 
 CS2 loads a base game-mode config and then (if present) a **server override** with the suffix `_server.cfg`.  
