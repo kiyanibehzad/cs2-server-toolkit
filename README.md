@@ -1,5 +1,8 @@
 # CS2 Server Toolkit
 
+<img width="565" height="501" alt="image" src="https://github.com/user-attachments/assets/0c8b99c2-a925-4b59-95ed-519a2ae5d222" />
+
+
 ⚡ One-command installer & admin toolkit for Counter-Strike 2 dedicated servers.  
 Includes:
 - Automatic installation & updates (via `systemd --user` timers)
