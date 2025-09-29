@@ -77,6 +77,103 @@ Looking for a reliable VPS or dedicated server for CS2?
 
 ---
 
+---
+
+## ⚙️ Custom game mode configs (`*_server.cfg`)
+
+CS2 loads a base game-mode config and then (if present) a **server override** with the suffix `_server.cfg`.  
+This lets you keep your persistent settings separate from Valve defaults and from the toolkit menu.
+
+### Load order (per map change / restart)
+
+1. `gamemode_<mode>.cfg` (Valve defaults)  
+2. `gamemode_<mode>_server.cfg` (your overrides — takes priority)  
+3. Anything you manually `exec` (e.g., via admin menu)  
+
+Where `<mode>` is one of: `casual`, `competitive`, `wingman`, `deathmatch`, …
+
+### File locations
+
+Put your files here (created if missing):
+```
+/home/<user>/cs2-ds/game/csgo/cfg/gamemode_competitive_server.cfg
+/home/<user>/cs2-ds/game/csgo/cfg/gamemode_casual_server.cfg
+/home/<user>/cs2-ds/game/csgo/cfg/gamemode_deathmatch_server.cfg
+...
+```
+
+> If your build uses `game/cs2/cfg/`, use that path instead. The toolkit auto-detects.
+
+### Quick examples
+
+**1) Competitive MR12 (overtime 3+3, keep >10 players)**  
+`gamemode_competitive_server.cfg`
+```cfg
+mp_maxrounds 24
+mp_halftime 1
+mp_overtime_enable 1
+mp_overtime_maxrounds 6
+mp_freezetime 15
+mp_roundtime 1.92
+mp_round_restart_delay 7
+mp_autokick 0
+sv_visiblemaxplayers 32
+```
+
+**2) Casual tweaks**  
+`gamemode_casual_server.cfg`
+```cfg
+mp_maxrounds 15
+mp_free_armor 1
+mp_solid_teammates 0
+sv_visiblemaxplayers 32
+```
+
+**3) Deathmatch (FFA-style)**  
+`gamemode_deathmatch_server.cfg`
+```cfg
+mp_teammates_are_enemies 1
+mp_respawn_on_death_t 1
+mp_respawn_on_death_ct 1
+mp_randomspawn 1
+mp_freezetime 0
+mp_maxrounds 0
+mp_timelimit 20
+mp_ignore_round_win_conditions 1
+sv_visiblemaxplayers 32
+```
+
+**4) Weapon restrictions (global)**  
+You can keep this inside a mode’s `_server.cfg` or in a separate file you `exec`:
+```cfg
+// ban AWP + SCOUT
+mp_items_prohibited "weapon_awp,weapon_ssg08"
+```
+
+**5) Fun: chickens**
+```cfg
+mp_enablechickens 1
+```
+
+### Applying changes
+
+- Changes in `*_server.cfg` load automatically on next **map change** or server restart.  
+- To apply immediately:
+  ```
+  rcon exec gamemode_competitive_server.cfg
+  rcon mp_restartgame 1
+  ```
+  (replace filename with your target mode)
+
+### Tips & best practices
+
+- Keep permanent, “always-on” rules in the relevant `*_server.cfg`.  
+- Use the admin menu for **temporary** toggles (e.g., weapon block, quick practice, chickens).  
+- If a setting is fighty (e.g., a menu preset also sets it), the last executed file wins.  
+- You can create **per-map** overrides using `mapname.cfg` (e.g., `de_mirage.cfg`) if needed.
+
+---
+
 ## 🔄 Auto Update
 
 Two timers are installed automatically:
