@@ -232,6 +232,7 @@ safe_update_now() {
 show_update_timer() {
   ensure_user_systemd_env
   echo -e "${bold}${CLR_ACTIONS}[Update timer status]${reset}"
+    echo -e "  ${CLR_ACTIONS}G)${reset} Update toolkit (git)"
   systemctl --user list-timers --all | awk 'NR==1 || /cs2-checkupdate\.timer/ {print}'
   echo
   echo -e "${bold}${CLR_ACTIONS}[Last cs2-checkupdate.service logs]${reset}"
@@ -354,6 +355,28 @@ chickens_menu() {
   esac
 }
 
+# ---------- TOOLKIT SELF-UPDATE ----------
+update_toolkit_git() {
+  require_cmd git || return 1
+  local repo="${TOOLKIT_REPO:-$HOME/cs2-server-toolkit}"
+  local src="${TOOLKIT_SCRIPT:-$repo/scripts/cs2-admin.sh}"
+  local self
+  self="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
+  if [[ ! -d "$repo/.git" ]]; then
+    err "Toolkit repo not found at $repo"
+    return 1
+  fi
+  info "Pulling latest toolkit from Git..."
+  (cd "$repo" && git pull --rebase) || { err "git pull failed"; return 1; }
+  if [[ ! -f "$src" ]]; then
+    err "Admin script not found in repo: $src"
+    return 1
+  fi
+  install -m 0755 "$src" "$self" || { err "Install failed"; return 1; }
+  ok "Admin script updated from Git."
+  echo "Please restart the menu (run ./admin-cs2)."
+}
+
 # ---------- UI ----------
 
 banner() {
@@ -382,6 +405,7 @@ banner() {
   echo -e "  ${CLR_ACTIONS}y)${reset} Say message  ${CLR_ACTIONS}a)${reset} Kick ALL     ${CLR_ACTIONS}p)${reset} List installed maps"
   echo -e "  ${CLR_ACTIONS}x)${reset} Backup cfg   ${CLR_ACTIONS}c)${reset} Custom RCON"
   echo -e "  ${CLR_ACTIONS}T)${reset} Safe update now  ${CLR_ACTIONS}t)${reset} Update timer status"
+    echo -e "  ${CLR_ACTIONS}G)${reset} Update toolkit (git)"
   echo
   echo -e "${bold}${CLR_BANS}[Bans]${reset}"
   echo -e "  ${CLR_BANS}B)${reset} List banned  ${CLR_BANS}U)${reset} Unban (select from list)"
@@ -428,6 +452,7 @@ ui_loop() {
       h) chickens_menu ;;
       T) safe_update_now || true ;;
       t) show_update_timer || true ;;
+        G) update_toolkit_git || true ;;
       e) ok "Bye"; break ;;
       *) warn "Unknown key: $key" ;;
     esac
