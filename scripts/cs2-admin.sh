@@ -134,20 +134,62 @@ remove_bots() { rcon "bot_kick"; }
 bot_quota()   { rcon "bot_quota $1"; rcon "bot_quota_mode fill"; ok "bot_quota=$1 (fill)"; }
 kick_all()    { rcon "kickall"; }
 
-change_map() {
-  local map="$1"
-  if [[ "$STRICT_CHECK" -eq 1 ]] && ! has_map "$map"; then warn "${map} not found (.bsp/.vpk). Skipping."; return 1; fi
-  info "Changing map to: ${bold}$map${reset}"; rcon "changelevel ${map}"
-}
-update_server() {
-  info "Updating server via steamcmd (AppID 730)..."
-  if [[ -x "$STEAMCMD" ]]; then
-    "$STEAMCMD" +login anonymous +app_update 730 validate +quit
-  else
-    require_cmd steamcmd || return 1
-    steamcmd +login anonymous +app_update 730 validate +quit
+current_map() {
+  # Try to parse current map from `status` output
+  local out m
+  out="$(rcon status 2>/dev/null || true)"
+
+  # First try: parse "SV:  [1: de_dust2 | ...]"
+  m="$(echo "$out" \
+      | sed -n 's/.*SV:  \[1: \([^ |]\+\).*/\1/p' \
+      | head -n1)"
+
+  # Fallback: parse a "map  : de_..." style line if present
+  if [[ -z "$m" ]]; then
+    m="$(echo "$out" \
+        | awk -F': ' '/^map[[:space:]]*:/{print $2}' \
+        | awk '{print $1}' \
+        | head -n1)"
   fi
-  ok "Update complete."
+
+  echo "$m"
+}
+
+change_map() {
+  local map="$1" out cur tries
+
+  # Make sure server is up and RCON responds
+  ensure_server_running || return 1
+
+  if [[ "$STRICT_CHECK" -eq 1 ]] && ! has_map "$map"; then
+    warn "${map} not found (.bsp/.vpk). Skipping."
+    return 1
+  fi
+
+  info "Changing map to: ${bold}$map${reset}"
+  out="$(rcon "changelevel ${map}" 2>&1 || true)"
+
+  # If server reports not running (rare race), try to start and use 'map' as fallback
+  if echo "$out" | grep -qi "Server not running"; then
+    warn "Server reported not running; restarting user service and retrying."
+    restart_service || true
+    wait_rcon_ready || true
+    out="$(rcon "map ${map}" 2>&1 || true)"
+  fi
+
+  # Verify with retries (server needs a second to settle)
+  tries=16
+  while ((tries-- > 0)); do
+    sleep 0.5
+    cur="$(current_map)"
+    if [[ "$cur" == "$map" ]]; then
+      ok "Map changed to ${map}."
+      return 0
+    fi
+  done
+
+  warn "Map may not have changed (current: '${cur:-unknown}')."
+  return 1
 }
 
 # ---------- USER SERVICE OPS ----------
@@ -193,6 +235,46 @@ live_logs() {
   require_cmd journalctl || return 1
   info "Following logs for ${bold}$SERVICE_NAME${reset} (Ctrl+C to exit)..."
   journalctl --user -u "$SERVICE_NAME" -f -n 200
+}
+
+# ---------- SERVER STATUS HELPERS ----------
+# Wait until RCON responds (server truly up)
+wait_rcon_ready() {
+  local tries=20
+  while ((tries-- > 0)); do
+    if rcon status >/dev/null 2>&1; then return 0; fi
+    sleep 0.5
+  done
+  return 1
+}
+
+# Ensure user-level systemd service is up and RCON is reachable
+ensure_server_running() {
+  ensure_user_systemd_env
+  if user_unit_is_active "$SERVICE_NAME"; then
+    wait_rcon_ready || { warn "RCON not ready yet."; return 1; }
+    return 0
+  fi
+  warn "Service '$SERVICE_NAME' not active. Starting..."
+  systemctl --user start "$SERVICE_NAME" || { err "Failed to start service."; return 1; }
+  if ! wait_active_user_unit "$SERVICE_NAME"; then
+    warn "Unit started but not reporting active yet."
+  fi
+  wait_rcon_ready || { err "RCON still not ready after start."; return 1; }
+  ok "Service running and RCON ready."
+}
+
+# More robust current map detection (use host_map first)
+current_map() {
+  local out m
+  out="$(rcon "host_map" 2>/dev/null || true)"
+  m="$(echo "$out" | awk -F': ' '/host_map[[:space:]]*:/{print $2}' | awk '{print $1}' | head -n1)"
+  if [[ -n "$m" ]]; then echo "$m"; return 0; fi
+  out="$(rcon status 2>/dev/null || true)"
+  m="$(echo "$out" | sed -n 's/.*SV:  \[1: \([^ |]\+\).*/\1/p' | head -n1)"
+  [[ -n "$m" ]] && { echo "$m"; return 0; }
+  m="$(echo "$out" | awk -F': ' '/^map[[:space:]]*:/{print $2}' | awk '{print $1}' | head -n1)"
+  echo "$m"
 }
 
 backup_cfg() {
@@ -253,18 +335,139 @@ set_mode_competitive_MR12() {
 set_mode_casual()   { set_mode_core 0 0; rcon "exec gamemode_casual.cfg" || true; rcon "mp_maxrounds 15"; rcon "mp_free_armor 1"; rcon "mp_solid_teammates 0"; rcon "mp_autokick 0"; }
 set_mode_wingman()  { set_mode_core 0 2; rcon "exec gamemode_competitive.cfg" || true; rcon "mp_maxrounds 16"; }
 set_mode_deathmatch(){ rcon "exec gamemode_deathmatch.cfg" || true; rcon "game_type 1"; rcon "game_mode 2"; rcon "mp_maxrounds 0"; rcon "mp_respawn_on_death_ct 1"; rcon "mp_respawn_on_death_t 1"; }
+
 apply_mode_and_reload() {
-  local mode="$1" map="${2:-}"
+  local mode="$1" map="${2:-}" cur
+
+  # Ensure server is up before applying cvars
+  ensure_server_running || { err "Server not ready; cannot apply mode."; return 1; }
+
   case "$mode" in
-    comp_mr12) set_mode_competitive_MR12 ;;
-    casual)    set_mode_casual ;;
-    wingman)   set_mode_wingman ;;
-    deathmatch) set_mode_deathmatch ;;
-    *) err "Unknown mode: $mode"; return 1 ;;
+    comp_mr12)
+      set_mode_competitive_MR12
+      rcon "exec gamemode_competitive_server.cfg" || true
+      rcon "exec gamemode_competitive.cfg" || true
+      ;;
+    casual)
+      set_mode_casual
+      rcon "exec gamemode_casual_server.cfg" || true
+      rcon "exec gamemode_casual.cfg" || true
+      ;;
+    wingman)
+      set_mode_wingman
+      rcon "exec gamemode_competitive_server.cfg" || true
+      rcon "exec gamemode_competitive.cfg" || true
+      ;;
+    deathmatch)
+      set_mode_deathmatch
+      rcon "exec gamemode_deathmatch_server.cfg" || true
+      rcon "exec gamemode_deathmatch.cfg" || true
+      ;;
+    *)
+      err "Unknown mode: $mode"
+      return 1
+      ;;
   esac
-  if [[ -n "$map" ]]; then change_map "$map"; else rcon "mp_restartgame 1"; fi
-  say "Game mode switched to: $mode"; ok "Mode applied: $mode"
+
+  if [[ -n "$map" ]]; then
+    if ! change_map "$map"; then
+      warn "Failed to change map to '$map'. Falling back to mp_restartgame 1."
+      rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
+    fi
+  else
+    cur="$(current_map)"
+    if [[ -n "$cur" ]]; then
+      info "Reloading current map to apply mode fully: $cur"
+      if ! change_map "$cur"; then
+        warn "Failed to reload current map. Falling back to mp_restartgame 1."
+        rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
+      fi
+    else
+      warn "Could not detect current map; running mp_restartgame 1."
+      rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
+    fi
+  fi
+
+  say "Game mode switched to: $mode"
+  ok "Mode applied: $mode"
 }
+
+# --- CUSTOM MODES: create and run ---
+create_custom_mode() {
+  local cfgdir; cfgdir="$(cfg_path_guess)"
+  read -rp "New custom mode name (letters/numbers/_): " name
+  [[ -z "$name" ]] && { info "Cancelled."; return 0; }
+
+  # sanitize
+  if ! [[ "$name" =~ ^[A-Za-z0-9_]+$ ]]; then
+    err "Invalid name. Use only letters, numbers, underscore."
+    return 1
+  fi
+
+  local file="$cfgdir/${name}.cfg"
+  if [[ -f "$file" ]]; then
+    warn "File already exists: $file"
+  else
+    mkdir -p "$cfgdir"
+    cat > "$file" <<'EOF'
+# Example custom mode base
+mp_maxrounds 24
+mp_freezetime 15
+mp_buytime 20
+mp_overtime_enable 1
+# add more cvars here...
+EOF
+    ok "Created: $file"
+  fi
+
+  read -rp "Open it in editor now? (y/N): " yn
+  if [[ "$yn" =~ ^[Yy]$ ]]; then
+    "${EDITOR:-vi}" "$file"
+  fi
+
+  read -rp "Load this mode now (exec ${name}.cfg)? (y/N): " yn2
+  if [[ "$yn2" =~ ^[Yy]$ ]]; then
+    rcon "exec ${name}.cfg" && say "Custom mode '${name}' loaded." && ok "Applied."
+    reload_or_change_current_map
+  fi
+
+}
+
+# --- EDIT PER-MODE server.cfg with restart ---
+_edit_file_with_vi() { local f="$1"; "${EDITOR:-vi}" "$f"; }
+_ensure_file() { local f="$1"; [[ -f "$f" ]] || { mkdir -p "$(dirname "$f")"; : > "$f"; }; }
+
+edit_mode_server_cfg_menu() {
+  local cfgdir target base sel
+  cfgdir="$(cfg_path_guess)"
+  while true; do
+    echo; echo -e "${bold}${CLR_MODES}[Edit *_server.cfg (per mode)]${reset}"
+    echo "  1) competitive   -> gamemode_competitive_server.cfg"
+    echo "  2) casual        -> gamemode_casual_server.cfg"
+    echo "  3) wingman       -> gamemode_wingman_server.cfg"
+    echo "  4) deathmatch    -> gamemode_deathmatch_server.cfg"
+    echo "  5) custom name..."
+    echo "  0) Back"
+    read -rp "Select: " sel
+    case "$sel" in
+      1) target="$cfgdir/gamemode_competitive_server.cfg" ;;
+      2) target="$cfgdir/gamemode_casual_server.cfg" ;;
+      3) target="$cfgdir/gamemode_wingman_server.cfg" ;;
+      4) target="$cfgdir/gamemode_deathmatch_server.cfg" ;;
+      5) read -rp "Enter base name (example: surf -> surf_server.cfg): " base
+         [[ -z "$base" ]] && { info "Cancelled."; continue; }
+         target="$cfgdir/${base}_server.cfg" ;;
+      0|"") return 0 ;;
+      *) err "Invalid"; continue ;;
+    esac
+    _ensure_file "$target"
+    info "Opening: $target"
+    _edit_file_with_vi "$target"
+    ok "Saved. Restarting service to apply on next map load..."
+    restart_service || warn "Restart failed; check logs."
+  done
+}
+
 mode_menu() {
   echo; echo -e "${bold}${CLR_MODES}[Game Mode Presets]${reset}"
   echo -e "  ${CLR_MODES}1)${reset} Competitive MR12 (13-win, OT 3+3)"
@@ -281,6 +484,135 @@ mode_menu() {
     0|"") return 0 ;;
     *) err "Invalid";;
   esac
+}
+
+# ---------- CUSTOM MODE BUILDER ----------
+sanitize_slug() {
+  # Keep only [a-zA-Z0-9_ -], then collapse spaces to underscores
+  local s="$1"
+  s="${s//[^a-zA-Z0-9_ -]/}"
+  s="$(echo "$s" | sed -E 's/[[:space:]]+/_/g')"
+  # lowercase for neatness
+  echo "$s" | tr 'A-Z' 'a-z'
+}
+
+ask_int_default() {
+  # ask_int_default "Prompt" "default"
+  local prompt="$1" def="$2" ans
+  read -rp "$prompt [$def]: " ans
+  [[ -z "$ans" ]] && { echo "$def"; return 0; }
+  [[ "$ans" =~ ^-?[0-9]+$ ]] || { echo "$def"; return 0; }
+  echo "$ans"
+}
+
+build_custom_mode() {
+  local cfg_dir; cfg_dir="$(cfg_path_guess)/custom_modes"
+  mkdir -p "$cfg_dir"
+
+  echo
+  echo -e "${bold}${CLR_MODES}[Custom Mode Builder]${reset}"
+
+  local name raw slug
+  read -rp "Mode name (letters/numbers/spaces): " raw
+  slug="$(sanitize_slug "$raw")"
+  if [[ -z "$slug" ]]; then
+    err "Empty/invalid name."
+    return 1
+  fi
+  local out="$cfg_dir/${slug}.cfg"
+  if [[ -e "$out" ]]; then
+    read -rp "File exists (${out}). Overwrite? [y/N]: " yn
+    [[ "$yn" =~ ^[Yy]$ ]] || { warn "Cancelled."; return 1; }
+  fi
+
+  echo
+  echo "Choose base preset:"
+  echo "  1) Competitive base"
+  echo "  2) Casual base"
+  echo "  3) Wingman base"
+  echo "  4) Deathmatch base"
+  echo "  5) Empty (no base exec)"
+  read -rp "Select [1-5]: " base
+  case "$base" in
+    1) base_exec="exec gamemode_competitive.cfg" ;;
+    2) base_exec="exec gamemode_casual.cfg" ;;
+    3) base_exec="exec gamemode_competitive.cfg" ;;  # wingman also competitive rules base
+    4) base_exec="exec gamemode_deathmatch.cfg" ;;
+    5|*) base_exec="" ;;
+  esac
+
+  echo
+  echo "Enter core convars (press Enter for defaults):"
+  local gt gm
+  # Suggest game_type/mode by base
+  case "$base" in
+    1) gt=0; gm=1 ;;
+    2) gt=0; gm=0 ;;
+    3) gt=0; gm=2 ;;
+    4) gt=1; gm=2 ;;
+    *) gt=0; gm=1 ;;
+  esac
+  gt="$(ask_int_default "game_type" "$gt")"
+  gm="$(ask_int_default "game_mode" "$gm")"
+
+  local maxrounds halftime overtime_enable overtime_max buytime freezetime rrdelay autokick
+  maxrounds="$(ask_int_default "mp_maxrounds" "24")"
+  halftime="$(ask_int_default "mp_halftime (0/1)" "1")"
+  overtime_enable="$(ask_int_default "mp_overtime_enable (0/1)" "1")"
+  overtime_max="$(ask_int_default "mp_overtime_maxrounds" "6")"
+  buytime="$(ask_int_default "mp_buytime (seconds)" "20")"
+  freezetime="$(ask_int_default "mp_freezetime (seconds)" "15")"
+  rrdelay="$(ask_int_default "mp_round_restart_delay (seconds)" "7")"
+  autokick="$(ask_int_default "mp_autokick (0/1)" "0")"
+
+  local ff startmoney warmup_time
+  ff="$(ask_int_default "mp_friendlyfire (0/1)" "0")"
+  startmoney="$(ask_int_default "mp_startmoney" "800")"
+  warmup_time="$(ask_int_default "mp_warmuptime" "20")"
+
+  # Optional items banned
+  echo
+  read -rp "Comma-separated mp_items_prohibited (blank=none): " items_block
+
+  # Write file
+  {
+    echo "// Custom mode: $slug"
+    [[ -n "$base_exec" ]] && echo "$base_exec"
+    echo "game_type $gt"
+    echo "game_mode $gm"
+    echo "mp_maxrounds $maxrounds"
+    echo "mp_halftime $halftime"
+    echo "mp_overtime_enable $overtime_enable"
+    echo "mp_overtime_maxrounds $overtime_max"
+    echo "mp_buytime $buytime"
+    echo "mp_freezetime $freezetime"
+    echo "mp_round_restart_delay $rrdelay"
+    echo "mp_autokick $autokick"
+    echo "mp_friendlyfire $ff"
+    echo "mp_startmoney $startmoney"
+    echo "mp_warmuptime $warmup_time"
+    if [[ -n "$items_block" ]]; then
+      echo "mp_items_prohibited \"$items_block\""
+    fi
+    echo "echo \"[custom_modes] Loaded ${slug}.cfg\""
+  } > "$out"
+
+  ok "Saved: $out"
+
+  echo
+  read -rp "Apply now? (y=exec + reload current map) [y/N]: " yn
+  if [[ "$yn" =~ ^[Yy]$ ]]; then
+    # Exec the custom file, then reload current map for full apply
+    rcon "exec custom_modes/${slug}.cfg"
+    # Try to reload current map (uses your helper if present), else restart
+    if declare -F reload_current_map_for_mode >/dev/null 2>&1; then
+      reload_current_map_for_mode
+    else
+      warn "reload_current_map_for_mode not found; using mp_restartgame 1"
+      rcon "mp_restartgame 1"
+    fi
+    ok "Custom mode applied."
+  fi
 }
 
 # ---------- WEAPONS BLOCK ----------
@@ -469,7 +801,9 @@ banner() {
   echo -e "  ${CLR_BANS}B)${reset} List banned  ${CLR_BANS}U)${reset} Unban (select from list)"
   echo
   echo -e "${bold}${CLR_MODES}[Modes]${reset}"
-  echo -e "  ${CLR_MODES}g)${reset} Game mode presets (MR12 etc.)"
+  echo -e "  ${CLR_MODES}P)${reset} Game mode presets (Comp_MR12 / Casual / Wingman / DM)"
+  echo -e "  ${CLR_MODES}C)${reset} Create custom mode (.cfg)"
+  echo -e "  ${CLR_MODES}S)${reset} Edit *_server.cfg per mode (Edit+restart)"
   echo
   echo -e "${bold}${CLR_WEAPONS}[Weapons]${reset}"
   echo -e "  ${CLR_WEAPONS}w)${reset} Weapons block menu"
@@ -505,7 +839,9 @@ ui_loop() {
       c) read -rp "RCON cmd (blank=cancel): " RC; [[ -z "$RC" ]] && info "Cancelled." || rcon "$RC" ;;
       B) list_banned || true ;;
       U) unban_select || true ;;
-      g) mode_menu ;;
+      P) mode_menu ;;                 # presets
+      C) create_custom_mode ;;        # create & (optionally) run
+      S) edit_mode_server_cfg_menu ;; # edit server cfg then restart
       w) weapons_menu ;;
       h) chickens_menu ;;
       J|j) join_password_menu ;;
