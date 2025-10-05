@@ -30,6 +30,39 @@ CFG_WEAPONS_DEFAULT="weapons_all_default.cfg"
 CFG_WEAPONS_PISTOLS="weapons_pistols_only.cfg"
 CFG_WEAPONS_NO_RIFLES="weapons_no_rifles.cfg"
 
+# ---------- DYNAMIC BANNER SETTINGS ----------
+# External status link template. You can override via .update.env or env:
+# e.g., STATUS_URL_TPL="https://ismygameserver.online/valve/%s:%s"
+STATUS_URL_TPL="${STATUS_URL_TPL:-https://ismygameserver.online/valve/%s:%s}"
+
+compute_status_url() {
+  # Build URL from template + current host/port
+  printf "$STATUS_URL_TPL" "$RCON_HOST" "$RCON_PORT"
+}
+
+# Cached banner fields
+BANNER_HOSTNAME=""
+BANNER_VERSION=""
+BANNER_PLAYERS=""
+
+fetch_banner_stats() {
+  # Pull minimal info from "status". Non-fatal if RCON is unavailable.
+  local out
+  out="$(rcon status 2>/dev/null || true)"
+
+  # hostname : My Server Name
+  BANNER_HOSTNAME="$(echo "$out" | awk -F': ' '/^hostname[[:space:]]*:/{print $2}' | head -n1)"
+  [[ -z "$BANNER_HOSTNAME" ]] && BANNER_HOSTNAME="n/a"
+
+  # version  : 1.41.0.X/XXXXX ...
+  BANNER_VERSION="$(echo "$out" | awk '/^version[[:space:]]*:/{print $3}' | head -n1)"
+  [[ -z "$BANNER_VERSION" ]] && BANNER_VERSION="n/a"
+
+  # players  : 0 humans, 2 bots (0 max) (hibernating) (unreserved)
+  BANNER_PLAYERS="$(echo "$out" | awk '/^players[[:space:]]*:/{sub(/^players[[:space:]]*:[[:space:]]*/,""); print}' | head -n1)"
+  [[ -z "$BANNER_PLAYERS" ]] && BANNER_PLAYERS="n/a"
+}
+
 # ---------- COLORS ----------
 if command -v tput >/dev/null 2>&1 && [[ -t 1 ]]; then
   bold="$(tput bold)"; reset="$(tput sgr0)"
@@ -322,9 +355,21 @@ chickens_menu() {
 }
 
 # ---------- UI ----------
+
 banner() {
+  # Refresh cached status for header (fast; non-fatal)
+  fetch_banner_stats
+  local status_url; status_url="$(compute_status_url)"
+
   clear
   echo -e "${bold}${CLR_TITLE}=== CS2 Quick Admin ===${reset}"
+  echo
+  echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT};password ${RCON_PASS}"
+  echo -e "${bold}${cyan}Hostname:${reset} ${BANNER_HOSTNAME}"
+  echo -e "${bold}${cyan}Version:${reset} ${BANNER_VERSION}"
+  echo -e "${bold}${cyan}Players:${reset} ${BANNER_PLAYERS}"
+  echo -e "${bold}${cyan}Status URL:${reset} ${status_url}"
+  echo
   echo -e "${bold}${CLR_MAPS}[Map Hotkeys]${reset}"
   echo -e "  ${CLR_MAPS}1)${reset} de_dust2     ${CLR_MAPS}2)${reset} de_mirage    ${CLR_MAPS}3)${reset} de_inferno  ${CLR_MAPS}4)${reset} de_nuke"
   echo -e "  ${CLR_MAPS}5)${reset} de_overpass  ${CLR_MAPS}6)${reset} de_vertigo   ${CLR_MAPS}7)${reset} de_ancient  ${CLR_MAPS}8)${reset} de_anubis"
