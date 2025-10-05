@@ -467,6 +467,33 @@ banner() {
   echo -ne "${bold}${blue}Press a key:${reset} "
 }
 
+# ---------- TOOLKIT UPDATE (GIT) ----------
+update_toolkit_git_check() {
+  local repo="$HOME/cs2-server-toolkit"
+  [[ ! -d "$repo/.git" ]] && { err "Git repo not found at $repo"; return 1; }
+  cd "$repo" || return 1
+
+  git fetch origin main -q
+
+  local local_rev remote_rev
+  local_rev=$(git rev-parse main)
+  remote_rev=$(git rev-parse origin/main)
+
+  if [[ "$local_rev" == "$remote_rev" ]]; then
+    ok "Toolkit is already up to date."
+  else
+    warn "A new version of toolkit is available!"
+    echo "Run G again to update from Git."
+  fi
+}
+
+update_toolkit_git() {
+  local repo="$HOME/cs2-server-toolkit"
+  [[ ! -d "$repo/.git" ]] && { err "Git repo not found at $repo"; return 1; }
+  cd "$repo" || return 1
+  git pull --rebase origin main && ok "Toolkit updated successfully."
+}
+
 ui_loop() {
   while true; do
     banner
@@ -495,7 +522,7 @@ ui_loop() {
       h) chickens_menu ;;
       T) safe_update_now || true ;;
       t) show_update_timer || true ;;
-      G) update_toolkit_git || true ;;
+      G) update_toolkit_git_check || true ;;
       J) join_password_menu ;;
       e) ok "Bye"; break ;;
       *) warn "Unknown key: $key" ;;
