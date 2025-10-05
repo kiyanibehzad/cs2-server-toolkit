@@ -1,27 +1,23 @@
 #!/bin/bash
-# CS2 Admin Toolkit (maps, admin ops, bans, modes, weapons block, chickens)
+# CS2 Admin Toolkit (maps, admin ops, bans, modes, weapons block, chickens, join password menu)
 # Reads config from /home/<user>/cs2-ds/.update.env if present.
 # English-only comments. User-level systemd control (no sudo) friendly.
-# Adds: T) Safe update now, t) Update timer status
 
 set -uo pipefail
 
 # ---------- CONFIG ----------
-# Load values from installer (if present)
 CS2_USER="${CS2_USER:-$(id -un)}"
 CS2_HOME="${CS2_HOME:-/home/$CS2_USER}"
 CS2_DIR="${CS2_DIR:-$CS2_HOME/cs2-ds}"
 CONF="$CS2_DIR/.update.env"
 [[ -f "$CONF" ]] && . "$CONF"
 
-# RCON / networking (fallbacks if not set in .update.env)
 RCON_HOST="${HOST_IP:-127.0.0.1}"
 RCON_PORT="${PORT:-27015}"
 RCON_PASS="${RCON_PASS:-ChangeMe123!}"
 
-# Paths and service
 STEAMCMD="${STEAMCMD:-$CS2_HOME/steamcmd/steamcmd.sh}"
-SERVICE_NAME="${SERVICE_NAME:-cs2-ds}"   # user-level systemd unit (without .service)
+SERVICE_NAME="${SERVICE_NAME:-cs2-ds}"
 BACKUP_DIR="$CS2_DIR/backups"
 STRICT_CHECK=${STRICT_CHECK:-1}
 
@@ -30,38 +26,10 @@ CFG_WEAPONS_DEFAULT="weapons_all_default.cfg"
 CFG_WEAPONS_PISTOLS="weapons_pistols_only.cfg"
 CFG_WEAPONS_NO_RIFLES="weapons_no_rifles.cfg"
 
-# ---------- DYNAMIC BANNER SETTINGS ----------
-# External status link template. You can override via .update.env or env:
-# e.g., STATUS_URL_TPL="https://ismygameserver.online/valve/%s:%s"
+# External status link template (override via .update.env if you like)
 STATUS_URL_TPL="${STATUS_URL_TPL:-https://ismygameserver.online/valve/%s:%s}"
 
-compute_status_url() {
-  # Build URL from template + current host/port
-  printf "$STATUS_URL_TPL" "$RCON_HOST" "$RCON_PORT"
-}
-
-# Cached banner fields
-BANNER_HOSTNAME=""
-BANNER_VERSION=""
-BANNER_PLAYERS=""
-
-fetch_banner_stats() {
-  # Pull minimal info from "status". Non-fatal if RCON is unavailable.
-  local out
-  out="$(rcon status 2>/dev/null || true)"
-
-  # hostname : My Server Name
-  BANNER_HOSTNAME="$(echo "$out" | awk -F': ' '/^hostname[[:space:]]*:/{print $2}' | head -n1)"
-  [[ -z "$BANNER_HOSTNAME" ]] && BANNER_HOSTNAME="n/a"
-
-  # version  : 1.41.0.X/XXXXX ...
-  BANNER_VERSION="$(echo "$out" | awk '/^version[[:space:]]*:/{print $3}' | head -n1)"
-  [[ -z "$BANNER_VERSION" ]] && BANNER_VERSION="n/a"
-
-  # players  : 0 humans, 2 bots (0 max) (hibernating) (unreserved)
-  BANNER_PLAYERS="$(echo "$out" | awk '/^players[[:space:]]*:/{sub(/^players[[:space:]]*:[[:space:]]*/,""); print}' | head -n1)"
-  [[ -z "$BANNER_PLAYERS" ]] && BANNER_PLAYERS="n/a"
-}
+compute_status_url() { printf "$STATUS_URL_TPL" "$RCON_HOST" "$RCON_PORT"; }
 
 # ---------- COLORS ----------
 if command -v tput >/dev/null 2>&1 && [[ -t 1 ]]; then
@@ -232,7 +200,6 @@ safe_update_now() {
 show_update_timer() {
   ensure_user_systemd_env
   echo -e "${bold}${CLR_ACTIONS}[Update timer status]${reset}"
-    echo -e "  ${CLR_ACTIONS}G)${reset} Update toolkit (git)"
   systemctl --user list-timers --all | awk 'NR==1 || /cs2-checkupdate\.timer/ {print}'
   echo
   echo -e "${bold}${CLR_ACTIONS}[Last cs2-checkupdate.service logs]${reset}"
@@ -256,7 +223,6 @@ unban_select() {
 
 # ---------- MODES ----------
 set_mode_core() { rcon "game_type $1"; rcon "game_mode $2"; }
-# Competitive MR12 (13-win, OT 3+3); no 5v5 hard cap
 set_mode_competitive_MR12() {
   set_mode_core 0 1
   rcon "exec gamemode_competitive.cfg" || true
@@ -269,21 +235,23 @@ set_mode_competitive_MR12() {
   rcon "mp_round_restart_delay 7"
   rcon "mp_autokick 0"
 }
-set_mode_casual()   { set_mode_core 0 0; rcon "exec gamemode_casual.cfg" || true; rcon "mp_maxrounds 15"; rcon "mp_free_armor 1"; rcon "mp_solid_teammates 0"; rcon "mp_autokick 0"; }
-set_mode_wingman()  { set_mode_core 0 2; rcon "exec gamemode_competitive.cfg" || true; rcon "mp_maxrounds 16"; }
+set_mode_casual()    { set_mode_core 0 0; rcon "exec gamemode_casual.cfg" || true; rcon "mp_maxrounds 15"; rcon "mp_free_armor 1"; rcon "mp_solid_teammates 0"; rcon "mp_autokick 0"; }
+set_mode_wingman()   { set_mode_core 0 2; rcon "exec gamemode_competitive.cfg" || true; rcon "mp_maxrounds 16"; }
 set_mode_deathmatch(){ rcon "exec gamemode_deathmatch.cfg" || true; rcon "game_type 1"; rcon "game_mode 2"; rcon "mp_maxrounds 0"; rcon "mp_respawn_on_death_ct 1"; rcon "mp_respawn_on_death_t 1"; }
+
 apply_mode_and_reload() {
   local mode="$1" map="${2:-}"
   case "$mode" in
-    comp_mr12) set_mode_competitive_MR12 ;;
-    casual)    set_mode_casual ;;
-    wingman)   set_mode_wingman ;;
+    comp_mr12)  set_mode_competitive_MR12 ;;
+    casual)     set_mode_casual ;;
+    wingman)    set_mode_wingman ;;
     deathmatch) set_mode_deathmatch ;;
     *) err "Unknown mode: $mode"; return 1 ;;
   esac
   if [[ -n "$map" ]]; then change_map "$map"; else rcon "mp_restartgame 1"; fi
   say "Game mode switched to: $mode"; ok "Mode applied: $mode"
 }
+
 mode_menu() {
   echo; echo -e "${bold}${CLR_MODES}[Game Mode Presets]${reset}"
   echo -e "  ${CLR_MODES}1)${reset} Competitive MR12 (13-win, OT 3+3)"
@@ -355,6 +323,69 @@ chickens_menu() {
   esac
 }
 
+# ---------- JOIN PASSWORD (sv_password) ----------
+mask() { # mask string for display
+  local s="$1" n; n=${#s}
+  (( n == 0 )) && { echo ""; return; }
+  if (( n <= 2 )); then echo "**"; else echo "${s:0:1}$(printf '%*s' $((n-2)) '' | tr ' ' '*')${s: -1}"; fi
+}
+get_sv_password() {
+  # parse "sv_password : value" (value can be "" or a word)
+  rcon "sv_password" 2>/dev/null | awk -F': ' '/^sv_password[[:space:]]*:/{print $2}' | awk '{print $1}' | tr -d '"' || true
+}
+persist_sv_password() {
+  local val="$1"
+  local cfg="$(cfg_path_guess)/cs2server.cfg"
+  mkdir -p "$(dirname "$cfg")"
+  [[ -f "$cfg" ]] || touch "$cfg"
+  cp "$cfg" "$cfg.bak.$(date +%s)" 2>/dev/null || true
+  if grep -qE '^\s*sv_password\b' "$cfg"; then
+    if [[ -z "$val" ]]; then
+      # clear line if exists; keep a single blank
+      sed -i -E 's/^\s*sv_password\s+.*$//' "$cfg"
+    else
+      sed -i -E "s|^\s*sv_password\s+.*$|sv_password \"${val}\"|g" "$cfg"
+    fi
+  else
+    [[ -n "$val" ]] && echo "sv_password \"${val}\"" >> "$cfg"
+  fi
+  ok "Persisted to $(basename "$cfg")."
+}
+set_join_password() {
+  local new="$1"
+  if [[ -z "$new" ]]; then
+    rcon 'sv_password ""' && ok "Join password cleared (runtime)."
+  else
+    rcon "sv_password \"$new\"" && ok "Join password set (runtime)."
+  fi
+}
+join_password_menu() {
+  echo; echo -e "${bold}${yellow}[Access / Join Password]${reset}"
+  local cur; cur="$(get_sv_password)"; echo "Current: $(mask "$cur")"
+  echo "  1) Set/Change password"
+  echo "  2) Clear (no password)"
+  echo "  3) Persist current to cs2server.cfg"
+  echo "  0) Back"; echo
+  read -rp "Select: " sel
+  case "$sel" in
+    1)
+      read -srp "New password (hidden): " NEW; echo
+      [[ -z "$NEW" ]] && { info "Cancelled."; return 0; }
+      set_join_password "$NEW"
+      read -rp "Persist to cs2server.cfg? [y/N]: " P; [[ "$P" =~ ^[Yy]$ ]] && persist_sv_password "$NEW"
+      ;;
+    2)
+      set_join_password ""
+      read -rp "Also remove from cs2server.cfg? [y/N]: " P; [[ "$P" =~ ^[Yy]$ ]] && persist_sv_password ""
+      ;;
+    3)
+      cur="$(get_sv_password)"; persist_sv_password "$cur"
+      ;;
+    0|"") return 0 ;;
+    *) err "Invalid";;
+  esac
+}
+
 # ---------- TOOLKIT SELF-UPDATE ----------
 update_toolkit_git() {
   require_cmd git || return 1
@@ -374,20 +405,30 @@ update_toolkit_git() {
   fi
   install -m 0755 "$src" "$self" || { err "Install failed"; return 1; }
   ok "Admin script updated from Git."
-  echo "Please restart the menu (run ./admin-cs2)."
+  echo "Reloading menu..."
+  exec "$self"
 }
 
 # ---------- UI ----------
-
+fetch_banner_stats() {
+  local out
+  out="$(rcon status 2>/dev/null || true)"
+  BANNER_HOSTNAME="$(echo "$out" | awk -F': ' '/^hostname[[:space:]]*:/{print $2}' | head -n1)"; [[ -z "$BANNER_HOSTNAME" ]] && BANNER_HOSTNAME="n/a"
+  BANNER_VERSION="$(echo "$out" | awk '/^version[[:space:]]*:/{print $3}' | head -n1)"; [[ -z "$BANNER_VERSION" ]] && BANNER_VERSION="n/a"
+  BANNER_PLAYERS="$(echo "$out" | awk '/^players[[:space:]]*:/{sub(/^players[[:space:]]*:[[:space:]]*/,""); print}' | head -n1)"; [[ -z "$BANNER_PLAYERS" ]] && BANNER_PLAYERS="n/a"
+}
 banner() {
-  # Refresh cached status for header (fast; non-fatal)
   fetch_banner_stats
   local status_url; status_url="$(compute_status_url)"
-
+  local jp; jp="$(get_sv_password 2>/dev/null || echo)"
   clear
   echo -e "${bold}${CLR_TITLE}=== CS2 Quick Admin ===${reset}"
   echo
-  echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT};password ${RCON_PASS}"
+  if [[ -n "$jp" ]]; then
+    echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT};password ${jp}"
+  else
+    echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT}"
+  fi
   echo -e "${bold}${cyan}Hostname:${reset} ${BANNER_HOSTNAME}"
   echo -e "${bold}${cyan}Version:${reset} ${BANNER_VERSION}"
   echo -e "${bold}${cyan}Players:${reset} ${BANNER_PLAYERS}"
@@ -404,8 +445,10 @@ banner() {
   echo -e "  ${CLR_ACTIONS}u)${reset} Update       ${CLR_ACTIONS}r)${reset} Restart svc  ${CLR_ACTIONS}L)${reset} Live logs"
   echo -e "  ${CLR_ACTIONS}y)${reset} Say message  ${CLR_ACTIONS}a)${reset} Kick ALL     ${CLR_ACTIONS}p)${reset} List installed maps"
   echo -e "  ${CLR_ACTIONS}x)${reset} Backup cfg   ${CLR_ACTIONS}c)${reset} Custom RCON"
-  echo -e "  ${CLR_ACTIONS}T)${reset} Safe update now  ${CLR_ACTIONS}t)${reset} Update timer status"
-    echo -e "  ${CLR_ACTIONS}G)${reset} Update toolkit (git)"
+  echo -e "  ${CLR_ACTIONS}T)${reset} Safe update now  ${CLR_ACTIONS}t)${reset} Update timer status  ${CLR_ACTIONS}G)${reset} Update toolkit (git)"
+  echo
+  echo -e "${bold}${yellow}[Access]${reset}"
+  echo -e "  ${yellow}J)${reset} Join password menu"
   echo
   echo -e "${bold}${CLR_BANS}[Bans]${reset}"
   echo -e "  ${CLR_BANS}B)${reset} List banned  ${CLR_BANS}U)${reset} Unban (select from list)"
@@ -452,7 +495,8 @@ ui_loop() {
       h) chickens_menu ;;
       T) safe_update_now || true ;;
       t) show_update_timer || true ;;
-        G) update_toolkit_git || true ;;
+      G) update_toolkit_git || true ;;
+      J) join_password_menu ;;
       e) ok "Bye"; break ;;
       *) warn "Unknown key: $key" ;;
     esac
@@ -480,5 +524,7 @@ case "$cmd" in
   unban-select) unban_select ;;
   safe-update) safe_update_now ;;
   show-timer) show_update_timer ;;
+  update-toolkit) update_toolkit_git ;;
+  joinpass) join_password_menu ;;
   *) ui_loop ;;
 esac
