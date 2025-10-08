@@ -192,6 +192,17 @@ change_map() {
   return 1
 }
 
+update_server() {
+  info "Updating server via steamcmd (AppID 730)..."
+  if [[ -x "$STEAMCMD" ]]; then
+    "$STEAMCMD" +login anonymous +app_update 730 validate +quit
+  else
+    require_cmd steamcmd || return 1
+    steamcmd +login anonymous +app_update 730 validate +quit
+  fi
+  ok "Update complete."
+}
+
 # ---------- USER SERVICE OPS ----------
 unit_exists_user() { ensure_user_systemd_env; systemctl --user list-unit-files --type=service | awk '{print $1}' | sed 's/\.service$//' | grep -Fxq "$1"; }
 user_unit_is_active() {
