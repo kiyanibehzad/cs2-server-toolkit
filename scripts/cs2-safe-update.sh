@@ -1,59 +1,143 @@
-#!/bin/bash
-# Safe updater for CS2 dedicated server (no mid-game restart)
+#!/usr/bin/env bash
 set -euo pipefail
 
-CS2_USER="CS2USER"
-CS2_HOME="/home/$CS2_USER"
-CS2_DIR="$CS2_HOME/cs2-ds"
-SERVICE_NAME="cs2-ds"
-STEAMCMD="$CS2_HOME/steamcmd/steamcmd.sh"
-APPID="730"
-MANIFEST="$CS2_DIR/steamapps/appmanifest_${APPID}.acf"
-PENDING_FLAG="$CS2_DIR/.pending_update"
-CONF="$CS2_DIR/.update.env"; [[ -f "$CONF" ]] && source "$CONF" || true
-HOST_IP="${HOST_IP:-0.0.0.0}"
-PORT="${PORT:-27015}"
-RCON_PASS="${RCON_PASS:-ChangeMe123!}"
+# --- paths & constants ---
+USER_HOME="${HOME}"
+CS2_DIR="${USER_HOME}/cs2-ds"
+STEAMCMD="${USER_HOME}/steamcmd/steamcmd.sh"
+LOG="${CS2_DIR}/update.log"
+UNIT="cs2-ds"
 
-latest_buildid() {
-  local out
-  if [[ -x "$STEAMCMD" ]]; then
-    out="$("$STEAMCMD" +login anonymous +app_info_update 1 +app_info_print "$APPID" +quit 2>/dev/null | tr -d '\r')"
-  else
-    out="$(steamcmd +login anonymous +app_info_update 1 +app_info_print "$APPID" +quit 2>/dev/null | tr -d '\r')"
+APP=730                 # Use CS2 main app only
+MAX_UPDATE_TRIES=3
+RETRIES_APPINFO=5
+SLEEP_BETWEEN_TRIES=3
+
+ts()  { date -Is; }
+log() { echo "[safe-update] $*" | tee -a "$LOG"; }
+
+steamcmd_ok() { [[ -x "$STEAMCMD" ]]; }
+
+reset_appinfo_cache() {
+  rm -f  "${USER_HOME}/Steam/appcache/appinfo.vdf"  || true
+  rm -rf "${USER_HOME}/Steam/appcache/httpcache"    || true
+  "$STEAMCMD" +login anonymous +app_info_update 1 +quit >/dev/null || true
+}
+
+get_remote_buildid() {
+  "$STEAMCMD" +login anonymous +app_info_update 1 +app_info_print "$APP" +quit \
+    | tr -d '\r' \
+    | awk -F\" '/"buildid"/{print $4; exit}' \
+  || true
+}
+
+get_local_buildid() {
+  local mf="${CS2_DIR}/steamapps/appmanifest_${APP}.acf"
+  if [[ -f "$mf" ]]; then
+    awk -F\" '/"buildid"/{print $4; exit}' "$mf" && return 0
   fi
-  echo "$out" | awk -F\" '/"buildid"/{print $4; exit}'
+  echo ""
 }
-local_buildid() { [[ -f "$MANIFEST" ]] && awk -F\" '/"buildid"/{print $4; exit}' "$MANIFEST" || echo "0"; }
-player_count() {
-  if command -v mcrcon >/dev/null 2>&1; then
-    local s c
-    s="$(mcrcon -H "$HOST_IP" -P "$PORT" -p "$RCON_PASS" status 2>/dev/null || true)"
-    c="$(echo "$s" | awk '/players/ && /humans/{for(i=1;i<=NF;i++) if($i=="players"){print $(i+2); exit}}')"
-    [[ "$c" =~ ^[0-9]+$ ]] || c=0; echo "$c"
-  else echo 0; fi
+
+# Consider server "busy" if there are human players > 0
+server_is_busy() {
+  if ! command -v mcrcon >/dev/null 2>&1; then
+      return 1
+  fi
+  # Read RCON params from .update.env if present
+  local host="127.0.0.1" port="27015" pass=""
+  if [[ -f "${CS2_DIR}/.update.env" ]]; then
+    # shellcheck disable=SC1090
+    . "${CS2_DIR}/.update.env"
+    host="${HOST_IP:-$host}"
+    port="${PORT:-$port}"
+    pass="${RCON_PASS:-$pass}"
+  fi
+  local out
+  if [[ -n "$pass" ]]; then
+    out="$(mcrcon -H "$host" -P "$port" -p "$pass" status 2>/dev/null || true)"
+  else
+    # If no RCON, assume not busy
+    return 1
+  fi
+  # Parse "players  : X humans"
+  local humans
+  humans="$(echo "$out" | awk -F'[, ]+' '/^players[[:space:]]*:/{print $3; exit}' 2>/dev/null || echo "")"
+  [[ -n "$humans" && "$humans" =~ ^[0-9]+$ && "$humans" -gt 0 ]]
 }
-stop_user_service() { systemctl --user stop "$SERVICE_NAME" || true; for i in {1..20}; do systemctl --user is-active --quiet "$SERVICE_NAME" || return 0; sleep 0.5; done; }
-start_user_service(){ systemctl --user start "$SERVICE_NAME"; }
-do_update_download_only(){ [[ -x "$STEAMCMD" ]] && "$STEAMCMD" +login anonymous +app_update "$APPID" +quit || steamcmd +login anonymous +app_update "$APPID" +quit; }
-do_update_validate_full(){ [[ -x "$STEAMCMD" ]] && "$STEAMCMD" +login anonymous +app_update "$APPID" validate +quit || steamcmd +login anonymous +app_update "$APPID" validate +quit; }
 
-LBLD="$(local_buildid)"; RBLD="$(latest_buildid || echo "0")"
-echo "[safe-update] local=$LBLD remote=$RBLD"
-[[ "$RBLD" == "0" ]] && { echo "[safe-update] WARN: cannot read remote buildid"; exit 0; }
-[[ "$LBLD" == "$RBLD" && ! -f "$PENDING_FLAG" ]] && { echo "[safe-update] up-to-date"; exit 0; }
+stop_server() {
+  systemctl --user stop "${UNIT}.service" || true
+  sleep 2
+}
 
-PCNT="$(player_count || echo 0)"; echo "[safe-update] players=$PCNT"
-if [[ "$PCNT" -eq 0 ]]; then
-  echo "[safe-update] applying update"
-  rm -f "$PENDING_FLAG" || true
-  stop_user_service
-  do_update_validate_full
-  start_user_service
-  echo "[safe-update] done"
-else
-  echo "[safe-update] players online; downloading only"
-  touch "$PENDING_FLAG" || true
-  do_update_download_only
-  echo "[safe-update] downloaded; restart deferred"
-fi
+start_server() {
+  systemctl --user start "${UNIT}.service" || true
+}
+
+do_update() {
+  local i=1
+  while (( i <= MAX_UPDATE_TRIES )); do
+    log "steamcmd attempt ${i}/${MAX_UPDATE_TRIES}..."
+    if "$STEAMCMD" +login anonymous +app_update "$APP" validate +quit; then
+      return 0
+    fi
+    (( i++ ))
+    sleep "$SLEEP_BETWEEN_TRIES"
+  done
+  return 1
+}
+
+main() {
+  mkdir -p "$(dirname "$LOG")"
+  echo "[safe-update] ---- run $(ts) ----" >> "$LOG"
+
+  if ! steamcmd_ok; then
+    log "steamcmd not found at $STEAMCMD"
+    exit 127
+  fi
+
+  # Get remote buildid with retries
+  local remote=""
+  for ((i=1; i<=RETRIES_APPINFO; i++)); do
+    remote="$(get_remote_buildid)"
+    [[ -n "$remote" ]] && break
+    log "remote build empty; resetting appinfo cache and retrying (${i}/${RETRIES_APPINFO})..."
+    reset_appinfo_cache
+    sleep 1
+  done
+  if [[ -z "$remote" ]]; then
+    log "cannot fetch remote buildid; skip"
+    exit 0
+  fi
+
+  local localb=""
+  localb="$(get_local_buildid || true)"
+  log "local=${localb:-unknown} remote=${remote}"
+
+  if [[ -n "$localb" && "$localb" == "$remote" ]]; then
+    log "up-to-date"
+    exit 0
+  fi
+
+  if server_is_busy; then
+    log "players detected; skipping update for now"
+    exit 0
+  fi
+
+  log "stopping server for update..."
+  stop_server
+
+  if do_update; then
+    log "update OK; starting server..."
+    start_server
+    log "done"
+    exit 0
+  else
+    log "steamcmd failed; starting server back and exiting with error"
+    start_server
+    exit 1
+  fi
+}
+
+main "$@"
