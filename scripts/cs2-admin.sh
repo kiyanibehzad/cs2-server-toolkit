@@ -48,15 +48,30 @@ BANNER_PLAYERS=""
 # ---------- COLORS ----------
 if command -v tput >/dev/null 2>&1 && [[ -t 1 ]]; then
   bold="$(tput bold)"; reset="$(tput sgr0)"
-  red="$(tput setaf 1)"; green="$(tput setaf 2)"; yellow="$(tput setaf 3)"
-  blue="$(tput setaf 4)"; magenta="$(tput setaf 5)"; cyan="$(tput setaf 6)"
+  red="$(tput setaf 1)"; green="$(tput setaf 2)"
+  yellow="$(tput setaf 3)"
+  blue="$(tput setaf 4)"; magenta="$(tput setaf 5)"; cyan="$(tput setaf 6)"; white="$(tput setaf 7)"
 else
   bold=$'\033[1m'; reset=$'\033[0m'
   red=$'\033[31m'; green=$'\033[32m'; yellow=$'\033[33m'
   blue=$'\033[34m'; magenta=$'\033[35m'; cyan=$'\033[36m'
+  white=$'\033[37m'
 fi
-CLR_MAPS="$cyan"; CLR_ACTIONS="$green"; CLR_BANS="$magenta"
-CLR_MODES="$yellow"; CLR_WEAPONS="$blue"; CLR_FUN="$cyan"; CLR_EXIT="$red"; CLR_TITLE="$cyan"
+
+# ---------- COLOR SCHEME ----------
+# Each menu section uses a different color for better visual distinction.
+# 1=red, 2=green, 3=yellow, 4=blue, 5=magenta, 6=cyan, 7=white
+
+CLR_MAPS="$cyan"         # Map hotkeys section (cyan)
+CLR_BOTS="$yellow"       # Bot controls section (yellow)
+CLR_ACTIONS="$green"     # Quick actions (green)
+CLR_TOOLS="$blue"        # Server tools (blue)
+CLR_BANS="$magenta"      # Ban management (magenta)
+CLR_MODES="$red"         # Game modes (red)
+CLR_WEAPONS="$white"     # Weapons blocking (white)
+CLR_FUN="$cyan"          # Fun section (chickens etc.) (cyan)
+CLR_EXIT="$red"          # Exit (red)
+CLR_TITLE="$magenta"     # Title/header (magenta)
 
 info()  { echo -e "${cyan}[i]${reset} $*"; }
 warn()  { echo -e "${yellow}[!]${reset} $*"; }
@@ -133,6 +148,13 @@ add_bot()     { case "${1:-auto}" in ct) rcon "bot_add_ct";; t) rcon "bot_add_t"
 remove_bots() { rcon "bot_kick"; }
 bot_quota()   { rcon "bot_quota $1"; rcon "bot_quota_mode fill"; ok "bot_quota=$1 (fill)"; }
 kick_all()    { rcon "kickall"; }
+
+# Bot difficulty: 0 easy, 1 normal, 2 hard, 3 expert
+bot_difficulty_set() {
+  local v="$1"
+  [[ "$v" =~ ^[0-3]$ ]] || { err "Invalid difficulty (use 0 easy, 1 normal, 2 hard, 3 expert)"; return 1; }
+  rcon "bot_difficulty $v" && ok "bot_difficulty=$v applied"
+}
 
 current_map() {
   # Try to parse current map from `status` output
@@ -679,6 +701,7 @@ chickens_menu() {
   esac
 }
 
+
 # ---------- JOIN PASSWORD (sv_password) ----------
 # Persist a key=value into .update.env (create or replace)
 persist_update_env() {
@@ -692,23 +715,32 @@ persist_update_env() {
   fi
 }
 
-# Return current join password.
-# Priority: JOIN_PASS from .update.env -> live RCON parse
+# Always prefer live RCON value; fall back to .update.env
 get_join_password() {
-  if [[ -n "${JOIN_PASS:-}" ]]; then
-    printf '%s' "$JOIN_PASS"
-    return
-  fi
   local out pw
   out="$(rcon sv_password 2>/dev/null || true)"
 
+  # formats to handle:
+  #  sv_password : 'mypw'
+  #  sv_password : mypw
+  #  "sv_password" = "mypw"
   pw="$(printf '%s\n' "$out" \
-        | sed -n "s/.*sv_password[[:space:]]*[:=][[:space:]]*'\([^']*\)'.*/\1/p")"
+        | sed -n "s/.*sv_password[[:space:]]*[:=][[:space:]]*'\\([^']*\\)'.*/\\1/p")"
   if [[ -z "$pw" ]]; then
     pw="$(printf '%s\n' "$out" \
-          | sed -n 's/.*sv_password[[:space:]]*[:=][[:space:]]*\([^[:space:]]*\).*/\1/p')"
+          | sed -n 's/.*sv_password[[:space:]]*[:=][[:space:]]*\"\\([^\"]*\\)\".*/\\1/p')"
   fi
-  printf '%s' "$pw"
+  if [[ -z "$pw" ]]; then
+    pw="$(printf '%s\n' "$out" \
+          | sed -n 's/.*sv_password[[:space:]]*[:=][[:space:]]*\\([^[:space:]]*\\).*/\\1/p')"
+  fi
+
+  # If live is empty, fall back to env variable (if any)
+  if [[ -z "$pw" && -n "${JOIN_PASS:-}" ]]; then
+    printf '%s' "$JOIN_PASS"
+  else
+    printf '%s' "$pw"
+  fi
 }
 
 join_password_menu() {
@@ -723,13 +755,15 @@ join_password_menu() {
       1)
         read -rp "New password: " np
         [[ -z "$np" ]] && { info "Cancelled."; continue; }
-        rcon "sv_password \"$np\""
+        rcon "sv_password \"$np\"" || { err "Failed to set sv_password"; continue; }
         persist_update_env "JOIN_PASS" "$np"
+        JOIN_PASS="$np"   # keep in-process value in sync
         ok "sv_password updated."
         ;;
       2)
-        rcon "sv_password \"\""
+        rcon "sv_password \"\"" || { err "Failed to clear sv_password"; continue; }
         persist_update_env "JOIN_PASS" ""
+        JOIN_PASS=""      # keep in-process value in sync
         ok "Join password cleared."
         ;;
       0|"") return 0 ;;
@@ -774,6 +808,7 @@ update_toolkit_git() {
 }
 
 # ---------- UI ----------
+
 banner() {
   fetch_banner_stats
   local status_url; status_url="$(compute_status_url)"
@@ -796,14 +831,19 @@ banner() {
   echo -e "  ${CLR_MAPS}1)${reset} de_dust2     ${CLR_MAPS}2)${reset} de_mirage    ${CLR_MAPS}3)${reset} de_inferno  ${CLR_MAPS}4)${reset} de_nuke"
   echo -e "  ${CLR_MAPS}5)${reset} de_overpass  ${CLR_MAPS}6)${reset} de_vertigo   ${CLR_MAPS}7)${reset} de_ancient  ${CLR_MAPS}8)${reset} de_anubis"
   echo -e "  ${CLR_MAPS}9)${reset} de_cache     ${CLR_MAPS}0)${reset} de_train"
+  echo -e "  ${CLR_MAPS}p)${reset} List installed maps"
+  echo
+  echo -e "${bold}${CLR_BOTS}[Bots]${reset}"
+  echo -e "  ${CLR_BOTS}b)${reset} Add bot      ${CLR_BOTS}n)${reset} Add bot (CT)   ${CLR_BOTS}m)${reset} Add bot (T)"
+  echo -e "  ${CLR_BOTS}k)${reset} Kick bots     ${CLR_BOTS}q)${reset} Set bot quota   ${CLR_BOTS}D)${reset} Set difficulty (0Ð)"
   echo
   echo -e "${bold}${CLR_ACTIONS}[Actions]${reset}"
-  echo -e "  ${CLR_ACTIONS}s)${reset} Status       ${CLR_ACTIONS}b)${reset} Add bot      ${CLR_ACTIONS}n)${reset} Add bot (CT)   ${CLR_ACTIONS}m)${reset} Add bot (T)"
-  echo -e "  ${CLR_ACTIONS}k)${reset} Kick bots    ${CLR_ACTIONS}q)${reset} Set bot quota"
-  echo -e "  ${CLR_ACTIONS}u)${reset} Update       ${CLR_ACTIONS}r)${reset} Restart svc  ${CLR_ACTIONS}L)${reset} Live logs"
-  echo -e "  ${CLR_ACTIONS}y)${reset} Say message  ${CLR_ACTIONS}a)${reset} Kick ALL     ${CLR_ACTIONS}p)${reset} List installed maps"
-  echo -e "  ${CLR_ACTIONS}x)${reset} Backup cfg   ${CLR_ACTIONS}c)${reset} Custom RCON"
-  echo -e "  ${CLR_ACTIONS}T)${reset} Safe update now  ${CLR_ACTIONS}t)${reset} Update timer status  ${CLR_ACTIONS}G)${reset} Update toolkit (git)"
+  echo -e "  ${CLR_ACTIONS}s)${reset} Status       ${CLR_ACTIONS}y)${reset} Say message  ${CLR_ACTIONS}a)${reset} Kick ALL"
+  echo
+  echo -e "${bold}${CLR_TOOLS}[Tools]${reset}"
+  echo -e "  ${CLR_TOOLS}u)${reset} Update       ${CLR_TOOLS}r)${reset} Restart svc  ${CLR_TOOLS}L)${reset} Live logs"
+  echo -e "  ${CLR_TOOLS}x)${reset} Backup cfg   ${CLR_TOOLS}c)${reset} Custom RCON"
+  echo -e "  ${CLR_TOOLS}T)${reset} Safe update now  ${CLR_TOOLS}t)${reset} Update timer status  ${CLR_TOOLS}G)${reset} Update toolkit (git)"
   echo
   echo -e "${bold}${cyan}[Access]${reset}"
   echo -e "  ${cyan}J)${reset} Join password menu"
@@ -822,6 +862,7 @@ banner() {
   echo -e "${bold}${CLR_FUN}[Fun]${reset}"
   echo -e "  ${CLR_FUN}h)${reset} Chickens menu"
   echo
+  echo -e "${bold}${CLR_EXIT}[EXIT]${reset}"
   echo -e "  ${CLR_EXIT}e)${reset} Exit"
   echo
   echo -ne "${bold}${blue}Press a key:${reset} "
@@ -834,31 +875,42 @@ ui_loop() {
     echo
     case "$key" in
       1|2|3|4|5|6|7|8|9|0) map="$(map_for_key "$key")"; [[ -n "$map" ]] && change_map "$map" || warn "Unknown key" ;;
-      s) status || true ;;
+      p) list_installed_maps || true ;;
+
+      # Bots
       b) add_bot auto || true ;;
       n) add_bot ct   || true ;;
       m) add_bot t    || true ;;
       k) remove_bots  || true ;;
       q) read -rp "Bot quota (blank=cancel): " N; [[ -z "$N" ]] && info "Cancelled." || { [[ "$N" =~ ^[0-9]+$ ]] && bot_quota "$N" || err "Invalid number"; } ;;
+      D|d) read -rp "Bot difficulty (0 easy, 1 normal, 2 hard, 3 expert; blank=cancel): " DV; [[ -z "$DV" ]] && info "Cancelled." || bot_difficulty_set "$DV" ;;
+
+      # Actions
+      s) status || true ;;
+      y) read -rp "Message (blank=cancel): " MSG; [[ -z "$MSG" ]] && info "Cancelled." || say "$MSG" ;;
+      a) kick_all || true ;;
+
+      # Tools
       u) update_server || true ;;
       r) restart_service || true ;;
       L) live_logs || true ;;
-      y) read -rp "Message (blank=cancel): " MSG; [[ -z "$MSG" ]] && info "Cancelled." || say "$MSG" ;;
-      a) kick_all || true ;;
-      p) list_installed_maps || true ;;
       x) backup_cfg || true ;;
       c) read -rp "RCON cmd (blank=cancel): " RC; [[ -z "$RC" ]] && info "Cancelled." || rcon "$RC" ;;
-      B) list_banned || true ;;
-      U) unban_select || true ;;
-      P) mode_menu ;;                 # presets
-      C) create_custom_mode ;;        # create & (optionally) run
-      S) edit_mode_server_cfg_menu ;; # edit server cfg then restart
-      w) weapons_menu ;;
-      h) chickens_menu ;;
-      J|j) join_password_menu ;;
       T) safe_update_now || true ;;
       t) show_update_timer || true ;;
       G) update_toolkit_git || true ;;
+
+      # Access / Bans / Modes / Weapons / Fun
+      J|j) join_password_menu ;;
+      B) list_banned || true ;;
+      U) unban_select || true ;;
+      P) mode_menu ;;
+      C) create_custom_mode ;;
+      S) edit_mode_server_cfg_menu ;;
+      w) weapons_menu ;;
+      h) chickens_menu ;;
+
+      # Exit
       e) ok "Bye"; break ;;
       *) warn "Unknown key: $key" ;;
     esac
