@@ -53,8 +53,7 @@ Looking for a reliable VPS or dedicated server for CS2?
    - RCON password
    - Server name (hostname)
    - Optional join password (It is recommended)
-   - Game Server Login Token (GSLT):
-   - https://steamcommunity.com/dev/managegameservers
+   - [Game Server Login Token (GSLT) link](https://steamcommunity.com/dev/managegameservers)
 
 ---
 
