@@ -49,9 +49,9 @@ Looking for a reliable VPS or dedicated server for CS2?
    ./install.sh
    ```
    The installer will ask for:
-   - Public server IP
-   - RCON password
-   - Server name (hostname)
+   - Public server IP (Your server or virtual machine IP)
+   - RCON password (Mandatory)
+   - Server name (Seen on Steam/Game)
    - Optional join password (It is recommended)
    - [Game Server Login Token (GSLT)](https://steamcommunity.com/dev/managegameservers)
 
