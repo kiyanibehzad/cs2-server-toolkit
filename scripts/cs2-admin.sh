@@ -436,8 +436,8 @@ set_mode_retakes() {
   rcon "sv_skirmish_id 12" || true
 
   # Optional local overrides if present
-  rcon "exec gamemode_retakes.cfg" || true
-  rcon "exec gamemode_retakes_server.cfg" || true
+  rcon "exec gamemode_retakecasual.cfg" || true
+  rcon "exec gamemode_retakecasual_server.cfg" || true
 
   modes_disable_bots_and_balance
 }
