@@ -443,22 +443,73 @@ reload_current_map_simple() {
 
 # Apply selected mode and reload the current map
 apply_mode_and_reload() {
-  local mode="$1"
+  # $1 = mode key (comp_mr12 / casual / wingman / deathmatch / retakes / armsrace)
+  # $2 = map name (optional; blank = reload current)
+  local mode="$1" map="${2:-}" cur
 
-  ensure_server_running || { err "Server not running"; return 1; }
+  # Ensure server is up before applying cvars
+  ensure_server_running || { err "Server not ready; cannot apply mode."; return 1; }
 
   case "$mode" in
-    comp_mr12)  set_mode_competitive_MR12 ;;
-    casual)     set_mode_casual ;;
-    wingman)    set_mode_wingman ;;
-    deathmatch) set_mode_deathmatch ;;
-    retakes)    set_mode_retakes ;;
-    armsrace)   set_mode_armsrace ;;
-    *) err "Unknown mode: $mode"; return 1 ;;
+    comp_mr12)
+      set_mode_competitive_MR12
+      rcon "exec gamemode_competitive_server.cfg" || true
+      ;;
+    casual)
+      set_mode_casual
+      rcon "exec gamemode_casual_server.cfg" || true
+      ;;
+    wingman)
+      set_mode_wingman
+      rcon "exec gamemode_wingman_server.cfg" || true
+      ;;
+    deathmatch)
+      set_mode_deathmatch
+      rcon "exec gamemode_deathmatch_server.cfg" || true
+      ;;
+    retakes)
+      set_mode_retakes
+      rcon "exec gamemode_retakecasual_server.cfg" || true
+      ;;
+    armsrace)
+      set_mode_armsrace
+      rcon "exec gamemode_armsrace_server.cfg" || true
+      ;;
+    *)
+      err "Unknown mode: $mode"
+      return 1
+      ;;
   esac
 
-  reload_current_map_simple
-  say "Game mode switched to $mode"
+  # Map reload / change to fully apply mode
+  if [[ -n "$map" ]]; then
+    if ! change_map "$map"; then
+      warn "Failed to change map to '$map'. Falling back to mp_restartgame 1."
+      rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
+    fi
+  else
+    cur="$(current_map)"
+    if [[ -n "$cur" ]]; then
+      info "Reloading current map to apply mode fully: $cur"
+      if ! change_map "$cur"; then
+        warn "Failed to reload current map. Falling back to mp_restartgame 1."
+        rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
+      fi
+    else
+      warn "Could not detect current map; running mp_restartgame 1."
+      rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
+    fi
+  fi
+
+  # Final pass AFTER map reload: enforce team/bot settings and kick bots
+  rcon "mp_autoteambalance 0"
+  rcon "mp_limitteams 0"
+  rcon "bot_quota 0"
+  rcon "bot_join_after_player 0"
+  rcon "bot_quota_mode normal"
+  rcon "bot_kick"
+
+  say "Game mode switched to: $mode"
   ok "Mode applied: $mode"
 }
 
