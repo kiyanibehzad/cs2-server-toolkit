@@ -1,9 +1,6 @@
 #!/bin/bash
 # CS2 Admin Toolkit (maps, admin ops, bans, modes, weapons block, chickens)
 # Reads config from /home/<user>/cs2-ds/.update.env if present.
-# English-only comments. User-level systemd control (no sudo) friendly.
-# Adds: dynamic banner (connect line with join password), Join Password menu,
-#       Safe update actions, Git self-update hook (G).
 
 set -uo pipefail
 
@@ -351,10 +348,16 @@ unban_select() {
 }
 
 # ---------- MODES ----------
-set_mode_core() { rcon "game_type $1"; rcon "game_mode $2"; }
+set_mode_core() {
+  # $1 = game_type, $2 = game_mode
+  rcon "game_type $1"
+  rcon "game_mode $2"
+}
+
 # Competitive MR12 (13-win, OT 3+3); no 5v5 hard cap
 set_mode_competitive_MR12() {
   set_mode_core 0 1
+  rcon "sv_skirmish_id 0"
   rcon "exec gamemode_competitive.cfg" || true
   rcon "mp_halftime 1"
   rcon "mp_maxrounds 24"
@@ -365,9 +368,47 @@ set_mode_competitive_MR12() {
   rcon "mp_round_restart_delay 7"
   rcon "mp_autokick 0"
 }
-set_mode_casual()   { set_mode_core 0 0; rcon "exec gamemode_casual.cfg" || true; rcon "mp_maxrounds 15"; rcon "mp_free_armor 1"; rcon "mp_solid_teammates 0"; rcon "mp_autokick 0"; }
-set_mode_wingman()  { set_mode_core 0 2; rcon "exec gamemode_competitive.cfg" || true; rcon "mp_maxrounds 16"; }
-set_mode_deathmatch(){ rcon "exec gamemode_deathmatch.cfg" || true; rcon "game_type 1"; rcon "game_mode 2"; rcon "mp_maxrounds 0"; rcon "mp_respawn_on_death_ct 1"; rcon "mp_respawn_on_death_t 1"; }
+
+set_mode_casual() {
+  set_mode_core 0 0
+  rcon "sv_skirmish_id 0"
+  rcon "exec gamemode_casual.cfg" || true
+  rcon "mp_maxrounds 15"
+  rcon "mp_free_armor 1"
+  rcon "mp_solid_teammates 0"
+  rcon "mp_autokick 0"
+}
+
+# Wingman official: game_type 0, game_mode 2 + competitive 2v2 configs
+set_mode_wingman() {
+  set_mode_core 0 2
+  rcon "sv_skirmish_id 0"
+  rcon "mp_maxrounds 16"
+}
+
+set_mode_deathmatch() {
+  set_mode_core 1 2
+  rcon "sv_skirmish_id 0"
+  rcon "exec gamemode_deathmatch.cfg" || true
+  rcon "mp_maxrounds 0"
+  rcon "mp_respawn_on_death_ct 1"
+  rcon "mp_respawn_on_death_t 1"
+}
+
+# Retakes: casual + skirmish_id 12 (official CS2 retakes)
+set_mode_retakes() {
+  set_mode_core 0 0
+  rcon "sv_skirmish_id 12"
+  rcon "exec gamemode_casual.cfg" || true
+}
+
+# Arms Race / Gun Game
+# CS2: game_type 1, game_mode 0
+set_mode_armsrace() {
+  set_mode_core 1 0
+  rcon "sv_skirmish_id 0"
+  rcon "exec gamemode_armsrace.cfg" || true
+}
 
 apply_mode_and_reload() {
   local mode="$1" map="${2:-}" cur
@@ -388,13 +429,25 @@ apply_mode_and_reload() {
       ;;
     wingman)
       set_mode_wingman
-      rcon "exec gamemode_competitive_server.cfg" || true
-      rcon "exec gamemode_competitive.cfg" || true
+      # Use dedicated Wingman configs so it does not behave like full competitive
+      rcon "exec gamemode_competitive2v2_server.cfg" || true
+      rcon "exec gamemode_competitive2v2.cfg" || true
       ;;
     deathmatch)
       set_mode_deathmatch
       rcon "exec gamemode_deathmatch_server.cfg" || true
       rcon "exec gamemode_deathmatch.cfg" || true
+      ;;
+    retakes)
+      set_mode_retakes
+      # Retakes uses casual base + skirmish; server.cfg is still casual server
+      rcon "exec gamemode_casual_server.cfg" || true
+      rcon "exec gamemode_casual.cfg" || true
+      ;;
+    armsrace)
+      set_mode_armsrace
+      rcon "exec gamemode_armsrace_server.cfg" || true
+      rcon "exec gamemode_armsrace.cfg" || true
       ;;
     *)
       err "Unknown mode: $mode"
@@ -477,7 +530,7 @@ edit_mode_server_cfg_menu() {
     echo; echo -e "${bold}${CLR_MODES}[Edit *_server.cfg (per mode)]${reset}"
     echo "  1) competitive   -> gamemode_competitive_server.cfg"
     echo "  2) casual        -> gamemode_casual_server.cfg"
-    echo "  3) wingman       -> gamemode_wingman_server.cfg"
+    echo "  3) wingman       -> gamemode_competitive2v2_server.cfg"
     echo "  4) deathmatch    -> gamemode_deathmatch_server.cfg"
     echo "  5) custom name..."
     echo "  0) Back"
@@ -485,7 +538,7 @@ edit_mode_server_cfg_menu() {
     case "$sel" in
       1) target="$cfgdir/gamemode_competitive_server.cfg" ;;
       2) target="$cfgdir/gamemode_casual_server.cfg" ;;
-      3) target="$cfgdir/gamemode_wingman_server.cfg" ;;
+      3) target="$cfgdir/gamemode_competitive2v2_server.cfg" ;;
       4) target="$cfgdir/gamemode_deathmatch_server.cfg" ;;
       5) read -rp "Enter base name (example: surf -> surf_server.cfg): " base
          [[ -z "$base" ]] && { info "Cancelled."; continue; }
@@ -505,17 +558,49 @@ mode_menu() {
   echo; echo -e "${bold}${CLR_MODES}[Game Mode Presets]${reset}"
   echo -e "  ${CLR_MODES}1)${reset} Competitive MR12 (13-win, OT 3+3)"
   echo -e "  ${CLR_MODES}2)${reset} Casual"
-  echo -e "  ${CLR_MODES}3)${reset} Wingman"
+  echo -e "  ${CLR_MODES}3)${reset} Wingman (2v2)"
   echo -e "  ${CLR_MODES}4)${reset} Deathmatch"
+  echo -e "  ${CLR_MODES}5)${reset} Retakes (casual skirmish)"
+  echo -e "  ${CLR_MODES}6)${reset} Arms Race"
   echo -e "  ${CLR_MODES}0)${reset} Back"; echo
   read -rp "Select: " sel
   case "$sel" in
-    1) read -rp "Map to load (blank=keep current, 0=back): " m; [[ "$m" == "0" ]] && return 0; apply_mode_and_reload comp_mr12 "$m" ;;
-    2) read -rp "Map to load (blank=keep current, 0=back): " m; [[ "$m" == "0" ]] && return 0; apply_mode_and_reload casual "$m" ;;
-    3) read -rp "Map to load (blank=keep current, 0=back): " m; [[ "$m" == "0" ]] && return 0; apply_mode_and_reload wingman "$m" ;;
-    4) read -rp "Map to load (blank=keep current, 0=back): " m; [[ "$m" == "0" ]] && return 0; apply_mode_and_reload deathmatch "$m" ;;
-    0|"") return 0 ;;
-    *) err "Invalid";;
+    1)
+      read -rp "Map to load (blank=keep current, 0=back): " m
+      [[ "$m" == "0" ]] && return 0
+      apply_mode_and_reload comp_mr12 "$m"
+      ;;
+    2)
+      read -rp "Map to load (blank=keep current, 0=back): " m
+      [[ "$m" == "0" ]] && return 0
+      apply_mode_and_reload casual "$m"
+      ;;
+    3)
+      read -rp "Map to load (blank=keep current, 0=back): " m
+      [[ "$m" == "0" ]] && return 0
+      apply_mode_and_reload wingman "$m"
+      ;;
+    4)
+      read -rp "Map to load (blank=keep current, 0=back): " m
+      [[ "$m" == "0" ]] && return 0
+      apply_mode_and_reload deathmatch "$m"
+      ;;
+    5)
+      read -rp "Retakes map (e.g. de_mirage; blank=keep current, 0=back): " m
+      [[ "$m" == "0" ]] && return 0
+      apply_mode_and_reload retakes "$m"
+      ;;
+    6)
+      read -rp "Arms Race map (e.g. ar_shoots; blank=keep current, 0=back): " m
+      [[ "$m" == "0" ]] && return 0
+      apply_mode_and_reload armsrace "$m"
+      ;;
+    0|"")
+      return 0
+      ;;
+    *)
+      err "Invalid"
+      ;;
   esac
 }
 
