@@ -430,7 +430,7 @@ set_mode_deathmatch() {
 set_mode_retakes() {
   set_mode_core 0 0
   # Base casual rules
-  rcon "exec gamemode_casual.cfg" || true
+  rcon "exec gamemode_retakecasual.cfg || true
 
   # Retakes layer
   rcon "sv_skirmish_id 12" || true
@@ -478,7 +478,7 @@ apply_mode_and_reload() {
       ;;
     retakes)
       set_mode_retakes
-      # If you have extra retakes server cfg, it is already executed in set_mode_retakes
+      rcon "exec gamemode_retakecasual.cfg" || true
       ;;
     armsrace)
       set_mode_armsrace
@@ -526,7 +526,7 @@ edit_mode_server_cfg_menu() {
     echo "  2) casual        -> gamemode_casual_server.cfg"
     echo "  3) wingman       -> gamemode_wingman_server.cfg"
     echo "  4) deathmatch    -> gamemode_deathmatch_server.cfg"
-    echo "  5) retakes       -> gamemode_retakes_server.cfg"
+    echo "  5) retakes       -> gamemode_retakecasual_server.cfg"
     echo "  6) arms race     -> gamemode_armsrace_server.cfg"
     echo "  7) custom name..."
     echo "  0) Back"
@@ -536,7 +536,7 @@ edit_mode_server_cfg_menu() {
       2) target="$cfgdir/gamemode_casual_server.cfg" ;;
       3) target="$cfgdir/gamemode_wingman_server.cfg" ;;
       4) target="$cfgdir/gamemode_deathmatch_server.cfg" ;;
-      5) target="$cfgdir/gamemode_retakes_server.cfg" ;;
+      5) target="$cfgdir/gamemode_retakecasual_server.cfg" ;;
       6) target="$cfgdir/gamemode_armsrace_server.cfg" ;;
       7)
          read -rp "Enter base name (example: surf -> surf_server.cfg): " base
@@ -556,7 +556,7 @@ edit_mode_server_cfg_menu() {
 
 mode_menu() {
   echo; echo -e "${bold}${CLR_MODES}[Game Mode Presets]${reset}"
-  echo -e "  ${CLR_MODES}1)${reset} Competitive MR12 (13-win, OT 3+3)"
+  echo -e "  ${CLR_MODES}1)${reset} Competitive"
   echo -e "  ${CLR_MODES}2)${reset} Casual"
   echo -e "  ${CLR_MODES}3)${reset} Wingman"
   echo -e "  ${CLR_MODES}4)${reset} Deathmatch"
