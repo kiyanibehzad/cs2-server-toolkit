@@ -400,7 +400,7 @@ set_mode_deathmatch() {
 
 # Retakes preset (if configs exist, otherwise exec is ignored)
 set_mode_retakes() {
-  set_mode_core 0 1
+  set_mode_core 1 0
   rcon "exec gamemode_retakes.cfg" || true
   rcon "exec gamemode_retakes_server.cfg" || true
 }
