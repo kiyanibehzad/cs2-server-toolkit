@@ -400,14 +400,14 @@ set_mode_deathmatch() {
 
 # Retakes preset (if configs exist, otherwise exec is ignored)
 set_mode_retakes() {
-  set_mode_core 0 3
+  set_mode_core 1 3
   rcon "exec gamemode_retakes.cfg" || true
   rcon "exec gamemode_retakes_server.cfg" || true
 }
 
 # Arms Race preset (if configs exist)
 set_mode_armsrace() {
-  #set_mode_core 1 0
+  set_mode_core 1 0
   rcon "exec gamemode_armsrace.cfg" || true
   rcon "exec gamemode_armsrace_server.cfg" || true
 }
