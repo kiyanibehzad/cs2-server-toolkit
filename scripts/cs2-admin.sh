@@ -400,9 +400,18 @@ set_mode_deathmatch() {
 
 # Retakes preset (if configs exist, otherwise exec is ignored)
 set_mode_retakes() {
-  set_mode_core 1 3
+  # Retakes uses competitive base
+  set_mode_core 0 1
+  rcon "exec gamemode_competitive.cfg" || true
+
+  # Apply retake overrides
   rcon "exec gamemode_retakes.cfg" || true
   rcon "exec gamemode_retakes_server.cfg" || true
+
+  # No bots, no limits
+  rcon "mp_autoteambalance 0"
+  rcon "mp_limitteams 0"
+  rcon "bot_quota 0"
 }
 
 # Arms Race preset (if configs exist)
