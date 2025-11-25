@@ -376,6 +376,7 @@ set_mode_competitive_MR12() {
   rcon "mp_freezetime 15"
   rcon "mp_round_restart_delay 7"
   rcon "mp_autokick 0"
+  rcon "bot_quota 0"
   apply_common_team_settings
 }
 
@@ -387,6 +388,7 @@ set_mode_casual() {
   rcon "mp_free_armor 1"
   rcon "mp_solid_teammates 0"
   rcon "mp_autokick 0"
+  rcon "bot_quota 0"
   apply_common_team_settings
 }
 
@@ -395,6 +397,7 @@ set_mode_wingman() {
   set_mode_core 0 2
   rcon "exec gamemode_competitive.cfg" || true
   rcon "mp_maxrounds 16"
+  rcon "bot_quota 0"
   apply_common_team_settings
 }
 
@@ -405,6 +408,7 @@ set_mode_deathmatch() {
   rcon "mp_respawn_on_death_ct 1"
   rcon "mp_respawn_on_death_t 1"
   rcon "mp_maxrounds 0"
+  rcon "bot_quota 0"
   apply_common_team_settings
 }
 
@@ -413,6 +417,7 @@ set_mode_retakes() {
   set_mode_core 0 0
   rcon "sv_skirmish_id 12"
   rcon "exec gamemode_retakecasual.cfg" || true
+  rcon "bot_quota 0"
   apply_common_team_settings
 }
 
@@ -420,6 +425,7 @@ set_mode_retakes() {
 set_mode_armsrace() {
   set_mode_core 1 0
   rcon "exec gamemode_armsrace.cfg" || true
+  rcon "bot_quota 0"
   apply_common_team_settings
 }
 
