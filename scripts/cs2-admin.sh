@@ -348,17 +348,14 @@ unban_select() {
 }
 
 # ---------- MODES ----------
-set_mode_core() {
-  # $1 = game_type, $2 = game_mode
-  rcon "game_type $1"
-  rcon "game_mode $2"
-}
+set_mode_core() { rcon "game_type $1"; rcon "game_mode $2"; }
 
-# Competitive MR12 (13-win, OT 3+3); no 5v5 hard cap
+# Competitive MR12 (13-win, OT 3+3); unlimited players, no bots, no autobalance
 set_mode_competitive_MR12() {
   set_mode_core 0 1
-  rcon "sv_skirmish_id 0"
   rcon "exec gamemode_competitive.cfg" || true
+
+  # Core MR12 settings
   rcon "mp_halftime 1"
   rcon "mp_maxrounds 24"
   rcon "mp_overtime_enable 1"
@@ -367,32 +364,71 @@ set_mode_competitive_MR12() {
   rcon "mp_freezetime 15"
   rcon "mp_round_restart_delay 7"
   rcon "mp_autokick 0"
+
+  # No team-size/auto-balance limits
+  rcon "mp_autoteambalance 0"
+  rcon "mp_limitteams 0"
+
+  # No default bots
+  rcon "bot_quota 0"
+  rcon "bot_quota_mode normal"
+  rcon "bot_kick"
 }
 
+# Casual; unlimited players, no bots, no autobalance
 set_mode_casual() {
   set_mode_core 0 0
-  rcon "sv_skirmish_id 0"
   rcon "exec gamemode_casual.cfg" || true
+
   rcon "mp_maxrounds 15"
   rcon "mp_free_armor 1"
   rcon "mp_solid_teammates 0"
   rcon "mp_autokick 0"
+
+  # No team-size/auto-balance limits
+  rcon "mp_autoteambalance 0"
+  rcon "mp_limitteams 0"
+
+  # No default bots
+  rcon "bot_quota 0"
+  rcon "bot_quota_mode normal"
+  rcon "bot_kick"
 }
 
-# Wingman official: game_type 0, game_mode 2 + competitive 2v2 configs
+# Wingman; unlimited players, no bots, no autobalance
 set_mode_wingman() {
   set_mode_core 0 2
-  rcon "sv_skirmish_id 0"
+  rcon "exec gamemode_competitive.cfg" || true
+
   rcon "mp_maxrounds 16"
+
+  # Disable any team/auto-balance limits
+  rcon "mp_autoteambalance 0"
+  rcon "mp_limitteams 0"
+
+  # No default bots
+  rcon "bot_quota 0"
+  rcon "bot_quota_mode normal"
+  rcon "bot_kick"
 }
 
+# Deathmatch; unlimited players, no bots, no autobalance
 set_mode_deathmatch() {
-  set_mode_core 1 2
-  rcon "sv_skirmish_id 0"
   rcon "exec gamemode_deathmatch.cfg" || true
+  rcon "game_type 1"
+  rcon "game_mode 2"
   rcon "mp_maxrounds 0"
   rcon "mp_respawn_on_death_ct 1"
   rcon "mp_respawn_on_death_t 1"
+
+  # Disable team/auto-balance limits
+  rcon "mp_autoteambalance 0"
+  rcon "mp_limitteams 0"
+
+  # No default bots
+  rcon "bot_quota 0"
+  rcon "bot_quota_mode normal"
+  rcon "bot_kick"
 }
 
 # Retakes: casual + skirmish_id 12 (official CS2 retakes)
@@ -527,24 +563,36 @@ edit_mode_server_cfg_menu() {
   local cfgdir target base sel
   cfgdir="$(cfg_path_guess)"
   while true; do
-    echo; echo -e "${bold}${CLR_MODES}[Edit *_server.cfg (per mode)]${reset}"
+    echo
+    echo -e "${bold}${CLR_MODES}[Edit *_server.cfg (per mode)]${reset}"
     echo "  1) competitive   -> gamemode_competitive_server.cfg"
     echo "  2) casual        -> gamemode_casual_server.cfg"
-    echo "  3) wingman       -> gamemode_competitive2v2_server.cfg"
+    echo "  3) wingman       -> gamemode_wingman_server.cfg"
     echo "  4) deathmatch    -> gamemode_deathmatch_server.cfg"
-    echo "  5) custom name..."
+    echo "  5) retakes       -> gamemode_retakes_server.cfg"
+    echo "  6) arms race     -> gamemode_armsrace_server.cfg"
+    echo "  7) custom name..."
     echo "  0) Back"
     read -rp "Select: " sel
     case "$sel" in
       1) target="$cfgdir/gamemode_competitive_server.cfg" ;;
       2) target="$cfgdir/gamemode_casual_server.cfg" ;;
-      3) target="$cfgdir/gamemode_competitive2v2_server.cfg" ;;
+      3) target="$cfgdir/gamemode_wingman_server.cfg" ;;
       4) target="$cfgdir/gamemode_deathmatch_server.cfg" ;;
-      5) read -rp "Enter base name (example: surf -> surf_server.cfg): " base
-         [[ -z "$base" ]] && { info "Cancelled."; continue; }
-         target="$cfgdir/${base}_server.cfg" ;;
-      0|"") return 0 ;;
-      *) err "Invalid"; continue ;;
+      5) target="$cfgdir/gamemode_retakes_server.cfg" ;;
+      6) target="$cfgdir/gamemode_armsrace_server.cfg" ;;
+      7)
+        read -rp "Enter base name (example: surf -> surf_server.cfg): " base
+        [[ -z "$base" ]] && { info "Cancelled."; continue; }
+        target="$cfgdir/${base}_server.cfg"
+        ;;
+      0|"")
+        return 0
+        ;;
+      *)
+        err "Invalid"
+        continue
+        ;;
     esac
     _ensure_file "$target"
     info "Opening: $target"
