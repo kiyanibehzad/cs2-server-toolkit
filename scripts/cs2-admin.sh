@@ -542,6 +542,175 @@ mode_menu() {
   esac
 }
 
+# ======================================================================
+# CUSTOM MODES: Creation + Per-Mode Server CFG Editing
+# ======================================================================
+
+# Sanitizes a user-provided mode name (letters/numbers/spaces)
+sanitize_slug() {
+  local s="$1"
+  s="${s//[^a-zA-Z0-9_ -]/}"          # allow only safe chars
+  s="$(echo "$s" | sed -E 's/[[:space:]]+/_/g')"  # convert spaces to _
+  echo "$s" | tr 'A-Z' 'a-z'          # lowercase
+}
+
+# Ask for integer with default
+ask_int_default() {
+  local prompt="$1" def="$2" ans
+  read -rp "$prompt [$def]: " ans
+  [[ -z "$ans" ]] && { echo "$def"; return; }
+  [[ "$ans" =~ ^-?[0-9]+$ ]] && { echo "$ans"; return; }
+  echo "$def"
+}
+
+# ----------------------------------------------------------------------
+# C) Create custom mode file (*.cfg)
+# ----------------------------------------------------------------------
+create_custom_mode() {
+  local cfg_dir; cfg_dir="$(cfg_path_guess)/custom_modes"
+  mkdir -p "$cfg_dir"
+
+  echo
+  echo -e "${bold}${CLR_MODES}[Custom Mode Builder]${reset}"
+
+  local raw slug
+  read -rp "Mode name (letters/numbers/spaces): " raw
+  slug="$(sanitize_slug "$raw")"
+
+  [[ -z "$slug" ]] && { err "Invalid / empty name."; return 1; }
+
+  local out="$cfg_dir/${slug}.cfg"
+
+  if [[ -f "$out" ]]; then
+    read -rp "File exists. Overwrite? (y/N): " yn
+    [[ "$yn" =~ ^[Yy]$ ]] || { warn "Cancelled."; return; }
+  fi
+
+  echo
+  echo "Choose base preset:"
+  echo "  1) Competitive base"
+  echo "  2) Casual base"
+  echo "  3) Wingman base"
+  echo "  4) Deathmatch base"
+  echo "  5) Empty (no preset)"
+  read -rp "Select [1-5]: " base
+
+  case "$base" in
+    1) base_exec="exec gamemode_competitive.cfg" ;;
+    2) base_exec="exec gamemode_casual.cfg" ;;
+    3) base_exec="exec gamemode_competitive.cfg" ;; # wingman uses competitive preset
+    4) base_exec="exec gamemode_deathmatch.cfg" ;;
+    5|*) base_exec="" ;;
+  esac
+
+  echo
+  echo "Enter convars (press Enter for default):"
+
+  # Default suggestions
+  case "$base" in
+    1) gt=0; gm=1 ;;   # comp
+    2) gt=0; gm=0 ;;   # casual
+    3) gt=0; gm=2 ;;   # wingman
+    4) gt=1; gm=2 ;;   # dm
+    *) gt=0; gm=0 ;;
+  esac
+
+  gt="$(ask_int_default "game_type" "$gt")"
+  gm="$(ask_int_default "game_mode" "$gm")"
+
+  maxrounds="$(ask_int_default "mp_maxrounds" "24")"
+  halftime="$(ask_int_default "mp_halftime (0/1)" "1")"
+  overtime_enable="$(ask_int_default "mp_overtime_enable (0/1)" "1")"
+  overtime_max="$(ask_int_default "mp_overtime_maxrounds" "6")"
+  buytime="$(ask_int_default "mp_buytime" "20")"
+  freezetime="$(ask_int_default "mp_freezetime" "15")"
+  rrdelay="$(ask_int_default "mp_round_restart_delay" "7")"
+  autokick="$(ask_int_default "mp_autokick (0/1)" "0")"
+  ff="$(ask_int_default "mp_friendlyfire (0/1)" "0")"
+  startmoney="$(ask_int_default "mp_startmoney" "800")"
+  warmup_time="$(ask_int_default "mp_warmuptime" "20")"
+
+  read -rp "mp_items_prohibited (comma list, blank=none): " items_block
+
+  {
+    echo "// Custom mode: $slug"
+    [[ -n "$base_exec" ]] && echo "$base_exec"
+    echo "game_type $gt"
+    echo "game_mode $gm"
+    echo "mp_maxrounds $maxrounds"
+    echo "mp_halftime $halftime"
+    echo "mp_overtime_enable $overtime_enable"
+    echo "mp_overtime_maxrounds $overtime_max"
+    echo "mp_buytime $buytime"
+    echo "mp_freezetime $freezetime"
+    echo "mp_round_restart_delay $rrdelay"
+    echo "mp_autokick $autokick"
+    echo "mp_friendlyfire $ff"
+    echo "mp_startmoney $startmoney"
+    echo "mp_warmuptime $warmup_time"
+    [[ -n "$items_block" ]] && echo "mp_items_prohibited \"$items_block\""
+    echo "echo \"[custom_modes] Loaded ${slug}.cfg\""
+  } > "$out"
+
+  ok "Saved: $out"
+
+  read -rp "Apply now? (y/N): " yn
+  if [[ "$yn" =~ ^[Yy]$ ]]; then
+    rcon "exec custom_modes/${slug}.cfg"
+    rcon "mp_restartgame 1"
+    ok "Custom mode applied."
+  fi
+}
+
+# ----------------------------------------------------------------------
+# S) Edit *_server.cfg per mode
+# ----------------------------------------------------------------------
+_edit_file_with_vi() { local f="$1"; "${EDITOR:-vi}" "$f"; }
+_ensure_file() { local f="$1"; [[ -f "$f" ]] || { mkdir -p "$(dirname "$f")"; : > "$f"; }; }
+
+edit_mode_server_cfg_menu() {
+  local cfgdir; cfgdir="$(cfg_path_guess)"
+  local target base sel
+
+  while true; do
+    echo
+    echo -e "${bold}${CLR_MODES}[Edit *_server.cfg per mode]${reset}"
+    echo "  1) competitive   -> gamemode_competitive_server.cfg"
+    echo "  2) casual        -> gamemode_casual_server.cfg"
+    echo "  3) wingman       -> gamemode_wingman_server.cfg"
+    echo "  4) deathmatch    -> gamemode_deathmatch_server.cfg"
+    echo "  5) retakes       -> gamemode_retakecasual_server.cfg"
+    echo "  6) arms race     -> gamemode_armsrace_server.cfg"
+    echo "  7) custom name..."
+    echo "  0) Back"
+
+    read -rp "Select: " sel
+
+    case "$sel" in
+      1) target="$cfgdir/gamemode_competitive_server.cfg" ;;
+      2) target="$cfgdir/gamemode_casual_server.cfg" ;;
+      3) target="$cfgdir/gamemode_wingman_server.cfg" ;;
+      4) target="$cfgdir/gamemode_deathmatch_server.cfg" ;;
+      5) target="$cfgdir/gamemode_retakecasual_server.cfg" ;;
+      6) target="$cfgdir/gamemode_armsrace_server.cfg" ;;
+      7)
+         read -rp "Enter base name (example: surf -> surf_server.cfg): " base
+         [[ -z "$base" ]] && continue
+         target="$cfgdir/${base}_server.cfg"
+         ;;
+      0|"") return ;;
+      *) err "Invalid"; continue ;;
+    esac
+
+    _ensure_file "$target"
+    info "Opening: $target"
+    _edit_file_with_vi "$target"
+    ok "Saved."
+
+    restart_service || warn "Restart failed; check logs."
+  done
+}
+
 # ---------- WEAPONS BLOCK ----------
 weapons_block_show() { info "Current prohibited items:"; rcon "mp_items_prohibited"; }
 weapons_block_set()  { local list="$1"; rcon "mp_items_prohibited \"$list\""; ok "Applied: mp_items_prohibited=\"$list\""; }
