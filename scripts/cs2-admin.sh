@@ -372,6 +372,7 @@ apply_common_team_settings() {
 # Competitive (MR12, unlimited players)
 set_mode_competitive_MR12() {
   set_mode_core 0 1
+  rcon "sv_skirmish_id 0"
   rcon "exec gamemode_competitive.cfg" || true
   rcon "mp_halftime 1"
   rcon "mp_maxrounds 24"
@@ -387,6 +388,7 @@ set_mode_competitive_MR12() {
 # Casual (no bots, unlimited players)
 set_mode_casual() {
   set_mode_core 0 0
+  rcon "sv_skirmish_id 0"
   rcon "exec gamemode_casual.cfg" || true
   rcon "mp_maxrounds 15"
   rcon "mp_free_armor 1"
@@ -398,6 +400,7 @@ set_mode_casual() {
 # Wingman but full map / unlimited players (NOT 2v2)
 set_mode_wingman() {
   set_mode_core 0 2
+  rcon "sv_skirmish_id 0"
   rcon "exec gamemode_competitive.cfg" || true
   rcon "mp_maxrounds 16"
   apply_common_team_settings
@@ -406,6 +409,7 @@ set_mode_wingman() {
 # Deathmatch
 set_mode_deathmatch() {
   set_mode_core 1 2
+  rcon "sv_skirmish_id 0"
   rcon "exec gamemode_deathmatch.cfg" || true
   rcon "mp_respawn_on_death_ct 1"
   rcon "mp_respawn_on_death_t 1"
@@ -424,6 +428,7 @@ set_mode_retakes() {
 # Arms Race
 set_mode_armsrace() {
   set_mode_core 1 0
+  rcon "sv_skirmish_id 0"
   rcon "exec gamemode_armsrace.cfg" || true
   apply_common_team_settings
 }
