@@ -407,7 +407,7 @@ set_mode_retakes() {
 
 # Arms Race preset (if configs exist)
 set_mode_armsrace() {
-  set_mode_core 1 0
+  #set_mode_core 1 0
   rcon "exec gamemode_armsrace.cfg" || true
   rcon "exec gamemode_armsrace_server.cfg" || true
 }
