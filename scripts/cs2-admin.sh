@@ -356,13 +356,6 @@ set_mode_competitive_MR12() {
   rcon "exec gamemode_competitive.cfg" || true
 
   # Core MR12 settings
-  rcon "mp_halftime 1"
-  rcon "mp_maxrounds 24"
-  rcon "mp_overtime_enable 1"
-  rcon "mp_overtime_maxrounds 6"
-  rcon "mp_buytime 20"
-  rcon "mp_freezetime 15"
-  rcon "mp_round_restart_delay 7"
   rcon "mp_autokick 0"
 
   # No team-size/auto-balance limits
@@ -379,10 +372,6 @@ set_mode_competitive_MR12() {
 set_mode_casual() {
   set_mode_core 0 0
   rcon "exec gamemode_casual.cfg" || true
-
-  rcon "mp_maxrounds 15"
-  rcon "mp_free_armor 1"
-  rcon "mp_solid_teammates 0"
   rcon "mp_autokick 0"
 
   # No team-size/auto-balance limits
@@ -400,8 +389,6 @@ set_mode_wingman() {
   set_mode_core 0 2
   rcon "exec gamemode_competitive.cfg" || true
 
-  rcon "mp_maxrounds 16"
-
   # Disable any team/auto-balance limits
   rcon "mp_autoteambalance 0"
   rcon "mp_limitteams 0"
@@ -417,9 +404,6 @@ set_mode_deathmatch() {
   rcon "exec gamemode_deathmatch.cfg" || true
   rcon "game_type 1"
   rcon "game_mode 2"
-  rcon "mp_maxrounds 0"
-  rcon "mp_respawn_on_death_ct 1"
-  rcon "mp_respawn_on_death_t 1"
 
   # Disable team/auto-balance limits
   rcon "mp_autoteambalance 0"
@@ -444,6 +428,15 @@ set_mode_armsrace() {
   set_mode_core 1 0
   rcon "sv_skirmish_id 0"
   rcon "exec gamemode_armsrace.cfg" || true
+
+  # Disable team/auto-balance limits
+  rcon "mp_autoteambalance 0"
+  rcon "mp_limitteams 0"
+
+  # No default bots
+  rcon "bot_quota 0"
+  rcon "bot_quota_mode normal"
+  rcon "bot_kick"
 }
 
 apply_mode_and_reload() {
