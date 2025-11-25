@@ -452,11 +452,10 @@ set_mode_armsrace() {
 }
 
 apply_mode_and_reload() {
-  # $1 = mode key (comp_mr12 / casual / wingman / deathmatch / retakes / armsrace)
-  # $2 = map name (optional; blank = reload current)
-  local mode="$1" map="${2:-}" cur
+  local mode="$1"
+  local map="${2:-}"
+  local cur=""
 
-  # Ensure server is up before applying cvars
   ensure_server_running || { err "Server not ready; cannot apply mode."; return 1; }
 
   case "$mode" in
@@ -488,6 +487,30 @@ apply_mode_and_reload() {
       return 1
       ;;
   esac
+
+  # --- Apply map reload ---
+  if [[ -n "$map" ]]; then
+    if ! change_map "$map"; then
+      warn "Failed to change map to '$map'. Falling back to mp_restartgame 1."
+      rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
+    fi
+  else
+    cur="$(current_map)"
+    if [[ -n "$cur" ]]; then
+      info "Reloading current map to apply mode fully: $cur"
+      if ! change_map "$cur"; then
+        warn "Failed to reload current map. Falling back to mp_restartgame 1."
+        rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
+      fi
+    else
+      warn "Could not detect current map; running mp_restartgame 1."
+      rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
+    fi
+  fi
+
+  say "Game mode switched to: $mode"
+  ok "Mode applied: $mode"
+}
 
   # Map reload / change to fully apply mode
   if [[ -n "$map" ]]; then
