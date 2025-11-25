@@ -636,7 +636,7 @@ build_custom_mode() {
 
   local name raw slug base_exec
   read -rp "Mode name (letters/numbers/spaces): " raw
-  slug="$(sanitize_slug("$raw")"
+  slug="$(sanitize_slug "$raw")"
   if [[ -z "$slug" ]]; then
     err "Empty/invalid name."
     return 1
