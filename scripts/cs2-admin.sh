@@ -371,21 +371,21 @@ set_mode_competitive_MR12() {
   set_mode_core 0 1
   rcon "exec gamemode_competitive.cfg" || true
 
-  # Keep core MR12 values, but do not touch presets more than needed
+  # MR12 layout (you can override in gamemode_competitive_server.cfg later)
   rcon "mp_halftime 1"
   rcon "mp_maxrounds 24"
   rcon "mp_overtime_enable 1"
   rcon "mp_overtime_maxrounds 6"
 
-  # Typical timings
+  # Common timings
   rcon "mp_buytime 20"
   rcon "mp_freezetime 15"
   rcon "mp_round_restart_delay 7"
 
-  # No auto-kick
+  # Do not kick players automatically
   rcon "mp_autokick 0"
 
-  # Shared customizations (no autobalance, no team limit, no bots)
+  # Shared customizations
   apply_common_team_settings
 }
 
@@ -400,20 +400,19 @@ set_mode_casual() {
   rcon "mp_solid_teammates 0"
   rcon "mp_autokick 0"
 
-  # Shared customizations
   apply_common_team_settings
 }
 
-# Wingman with free player count (no 2v2 hard lock) and no default bots
+# Wingman with free player count (no strict team limit) and no default bots
 set_mode_wingman() {
+  # Official Wingman type/mode
   set_mode_core 0 2
-  # Wingman usually reuses competitive rules
+  # Wingman usually shares many rules with competitive
   rcon "exec gamemode_competitive.cfg" || true
 
-  # Typical wingman maxrounds; you can change this in your *_server.cfg later
+  # Typical Wingman rounds (can be overridden in cfg)
   rcon "mp_maxrounds 16"
 
-  # Shared customizations
   apply_common_team_settings
 }
 
@@ -424,26 +423,19 @@ set_mode_deathmatch() {
   rcon "game_type 1"
   rcon "game_mode 2"
 
-  # Pure DM style
+  # Pure DM respawn style
   rcon "mp_maxrounds 0"
   rcon "mp_respawn_on_death_ct 1"
   rcon "mp_respawn_on_death_t 1"
 
-  # Shared customizations
   apply_common_team_settings
 }
 
 # Retakes preset:
-# Uses competitive base; you can add more retake-specific cvars
-# in your own cfg files (for example: gamemode_retakes_server.cfg).
+# Uses competitive base; if Valve configs are present they will be used.
 set_mode_retakes() {
   set_mode_core 0 1
-  rcon "exec gamemode_competitive.cfg" || true
-  # If you have your own retakes cfg, it will be applied here:
   rcon "exec gamemode_retakes.cfg" || true
-  rcon "exec gamemode_retakes_server.cfg" || true
-
-  # Shared customizations
   apply_common_team_settings
 }
 
@@ -452,9 +444,6 @@ set_mode_retakes() {
 set_mode_armsrace() {
   set_mode_core 1 0
   rcon "exec gamemode_armsrace.cfg" || true
-  rcon "exec gamemode_armsrace_server.cfg" || true
-
-  # Shared customizations
   apply_common_team_settings
 }
 
@@ -522,6 +511,58 @@ apply_mode_and_reload() {
 
   say "Game mode switched to: $mode"
   ok "Mode applied: $mode"
+}
+
+# --- SIMPLE CUSTOM MODE CREATOR (per-cfg) ---
+create_custom_mode() {
+  local cfgdir; cfgdir="$(cfg_path_guess)"
+  read -rp "New custom mode name (letters/numbers/_): " name
+  [[ -z "$name" ]] && { info "Cancelled."; return 0; }
+
+  # sanitize
+  if ! [[ "$name" =~ ^[A-Za-z0-9_]+$ ]]; then
+    err "Invalid name. Use only letters, numbers, underscore."
+    return 1
+  fi
+
+  local file="$cfgdir/${name}.cfg"
+  if [[ -f "$file" ]]; then
+    warn "File already exists: $file"
+  else
+    mkdir -p "$cfgdir"
+    cat > "$file" <<'EOF'
+// Example custom mode base
+mp_maxrounds 24
+mp_freezetime 15
+mp_buytime 20
+mp_overtime_enable 1
+// add more cvars here...
+EOF
+    ok "Created: $file"
+  fi
+
+  read -rp "Open it in editor now? (y/N): " yn
+  if [[ "$yn" =~ ^[Yy]$ ]]; then
+    "${EDITOR:-vi}" "$file"
+  fi
+
+  read -rp "Load this mode now (exec ${name}.cfg)? (y/N): " yn2
+  if [[ "$yn2" =~ ^[Yy]$ ]]; then
+    rcon "exec ${name}.cfg" && say "Custom mode '${name}' loaded." && ok "Applied."
+
+    # Reload current map so the mode fully applies
+    local cur; cur="$(current_map)"
+    if [[ -n "$cur" ]]; then
+      info "Reloading current map to apply custom mode fully: $cur"
+      if ! change_map "$cur"; then
+        warn "Failed to reload current map. Falling back to mp_restartgame 1."
+        rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
+      fi
+    else
+      warn "Could not detect current map; running mp_restartgame 1."
+      rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
+    fi
+  fi
 }
 
 # --- EDIT PER-MODE server.cfg with restart ---
@@ -616,134 +657,7 @@ mode_menu() {
   esac
 }
 
-# ---------- CUSTOM MODE BUILDER ----------
-sanitize_slug() {
-  # Keep only [a-zA-Z0-9_ -], then collapse spaces to underscores
-  local s="$1"
-  s="${s//[^a-zA-Z0-9_ -]/}"
-  s="$(echo "$s" | sed -E 's/[[:space:]]+/_/g')"
-  # lowercase for neatness
-  echo "$s" | tr 'A-Z' 'a-z'
-}
-
-ask_int_default() {
-  # ask_int_default "Prompt" "default"
-  local prompt="$1" def="$2" ans
-  read -rp "$prompt [$def]: " ans
-  [[ -z "$ans" ]] && { echo "$def"; return 0; }
-  [[ "$ans" =~ ^-?[0-9]+$ ]] || { echo "$def"; return 0; }
-  echo "$ans"
-}
-
-build_custom_mode() {
-  local cfg_dir; cfg_dir="$(cfg_path_guess)/custom_modes"
-  mkdir -p "$cfg_dir"
-
-  echo
-  echo -e "${bold}${CLR_MODES}[Custom Mode Builder]${reset}"
-
-  local name raw slug
-  read -rp "Mode name (letters/numbers/spaces): " raw
-  slug="$(sanitize_slug "$raw")"
-  if [[ -z "$slug" ]]; then
-    err "Empty/invalid name."
-    return 1
-  fi
-  local out="$cfg_dir/${slug}.cfg"
-  if [[ -e "$out" ]]; then
-    read -rp "File exists (${out}). Overwrite? [y/N]: " yn
-    [[ "$yn" =~ ^[Yy]$ ]] || { warn "Cancelled."; return 1; }
-  fi
-
-  echo
-  echo "Choose base preset:"
-  echo "  1) Competitive base"
-  echo "  2) Casual base"
-  echo "  3) Wingman base"
-  echo "  4) Deathmatch base"
-  echo "  5) Empty (no base exec)"
-  read -rp "Select [1-5]: " base
-  case "$base" in
-    1) base_exec="exec gamemode_competitive.cfg" ;;
-    2) base_exec="exec gamemode_casual.cfg" ;;
-    3) base_exec="exec gamemode_competitive.cfg" ;;  # wingman also competitive rules base
-    4) base_exec="exec gamemode_deathmatch.cfg" ;;
-    5|*) base_exec="" ;;
-  esac
-
-  echo
-  echo "Enter core convars (press Enter for defaults):"
-  local gt gm
-  # Suggest game_type/mode by base
-  case "$base" in
-    1) gt=0; gm=1 ;;
-    2) gt=0; gm=0 ;;
-    3) gt=0; gm=2 ;;
-    4) gt=1; gm=2 ;;
-    *) gt=0; gm=1 ;;
-  esac
-  gt="$(ask_int_default "game_type" "$gt")"
-  gm="$(ask_int_default "game_mode" "$gm")"
-
-  local maxrounds halftime overtime_enable overtime_max buytime freezetime rrdelay autokick
-  maxrounds="$(ask_int_default "mp_maxrounds" "24")"
-  halftime="$(ask_int_default "mp_halftime (0/1)" "1")"
-  overtime_enable="$(ask_int_default "mp_overtime_enable (0/1)" "1")"
-  overtime_max="$(ask_int_default "mp_overtime_maxrounds" "6")"
-  buytime="$(ask_int_default "mp_buytime (seconds)" "20")"
-  freezetime="$(ask_int_default "mp_freezetime (seconds)" "15")"
-  rrdelay="$(ask_int_default "mp_round_restart_delay (seconds)" "7")"
-  autokick="$(ask_int_default "mp_autokick (0/1)" "0")"
-
-  local ff startmoney warmup_time
-  ff="$(ask_int_default "mp_friendlyfire (0/1)" "0")"
-  startmoney="$(ask_int_default "mp_startmoney" "800")"
-  warmup_time="$(ask_int_default "mp_warmuptime" "20")"
-
-  # Optional items banned
-  echo
-  read -rp "Comma-separated mp_items_prohibited (blank=none): " items_block
-
-  # Write file
-  {
-    echo "// Custom mode: $slug"
-    [[ -n "$base_exec" ]] && echo "$base_exec"
-    echo "game_type $gt"
-    echo "game_mode $gm"
-    echo "mp_maxrounds $maxrounds"
-    echo "mp_halftime $halftime"
-    echo "mp_overtime_enable $overtime_enable"
-    echo "mp_overtime_maxrounds $overtime_max"
-    echo "mp_buytime $buytime"
-    echo "mp_freezetime $freezetime"
-    echo "mp_round_restart_delay $rrdelay"
-    echo "mp_autokick $autokick"
-    echo "mp_friendlyfire $ff"
-    echo "mp_startmoney $startmoney"
-    echo "mp_warmuptime $warmup_time"
-    if [[ -n "$items_block" ]]; then
-      echo "mp_items_prohibited \"$items_block\""
-    fi
-    echo "echo \"[custom_modes] Loaded ${slug}.cfg\""
-  } > "$out"
-
-  ok "Saved: $out"
-
-  echo
-  read -rp "Apply now? (y=exec + reload current map) [y/N]: " yn
-  if [[ "$yn" =~ ^[Yy]$ ]]; then
-    # Exec the custom file, then reload current map for full apply
-    rcon "exec custom_modes/${slug}.cfg"
-    # Try to reload current map (uses your helper if present), else restart
-    if declare -F reload_current_map_for_mode >/dev/null 2>&1; then
-      reload_current_map_for_mode
-    else
-      warn "reload_current_map_for_mode not found; using mp_restartgame 1"
-      rcon "mp_restartgame 1"
-    fi
-    ok "Custom mode applied."
-  fi
-}
+# ---------- WEAPONS BLOCK ----------
 
 # ---------- WEAPONS BLOCK ----------
 weapons_block_show() { info "Current prohibited items:"; rcon "mp_items_prohibited"; }
