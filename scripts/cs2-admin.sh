@@ -361,6 +361,7 @@ apply_common_team_settings() {
   rcon "mp_limitteams 0"
   rcon "bot_quota 0"
   rcon "bot_join_after_player 0"
+  remove_bots  # calls rcon "bot_kick"
 }
 
 # Competitive (MR12, unlimited players)
