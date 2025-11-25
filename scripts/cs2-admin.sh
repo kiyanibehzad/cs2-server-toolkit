@@ -356,95 +356,60 @@ set_mode_core() {
   rcon "game_mode $2"
 }
 
-# Common settings for all modes:
-# - No auto team balance
-# - No team limit
-# - No default bots
-apply_common_team_settings() {
-  rcon "mp_autoteambalance 0"
-  rcon "mp_limitteams 0"
-  rcon "bot_quota 0"
-}
-
-# Competitive MR12 (13-win, OT 3+3) with free player count
+# Competitive MR12 (13-win, OT 3+3)
 set_mode_competitive_MR12() {
   set_mode_core 0 1
+  # Base competitive settings
   rcon "exec gamemode_competitive.cfg" || true
 
-  # MR12 layout (you can override in gamemode_competitive_server.cfg later)
+  # MR12 tuning (you can move these into gamemode_competitive_server.cfg if you prefer)
   rcon "mp_halftime 1"
   rcon "mp_maxrounds 24"
   rcon "mp_overtime_enable 1"
   rcon "mp_overtime_maxrounds 6"
-
-  # Common timings
   rcon "mp_buytime 20"
   rcon "mp_freezetime 15"
   rcon "mp_round_restart_delay 7"
-
-  # Do not kick players automatically
   rcon "mp_autokick 0"
 
-  # Shared customizations
-  apply_common_team_settings
+  # Per-mode server overrides (optional, editable via menu)
+  rcon "exec gamemode_competitive_server.cfg" || true
 }
 
-# Casual with free player count and no default bots
+# Casual
 set_mode_casual() {
   set_mode_core 0 0
   rcon "exec gamemode_casual.cfg" || true
-
-  # Keep casual feeling
-  rcon "mp_maxrounds 15"
-  rcon "mp_free_armor 1"
-  rcon "mp_solid_teammates 0"
-  rcon "mp_autokick 0"
-
-  apply_common_team_settings
+  rcon "exec gamemode_casual_server.cfg" || true
 }
 
-# Wingman with free player count (no strict team limit) and no default bots
+# Wingman
 set_mode_wingman() {
-  # Official Wingman type/mode
   set_mode_core 0 2
-  # Wingman usually shares many rules with competitive
+  # Wingman uses competitive rules as base
   rcon "exec gamemode_competitive.cfg" || true
-
-  # Typical Wingman rounds (can be overridden in cfg)
-  rcon "mp_maxrounds 16"
-
-  apply_common_team_settings
+  rcon "exec gamemode_wingman_server.cfg" || true
 }
 
-# Deathmatch with free player count and no default bots
+# Deathmatch
 set_mode_deathmatch() {
-  # Arms Race / Demolition / Deathmatch share game_type 1
+  set_mode_core 1 2
   rcon "exec gamemode_deathmatch.cfg" || true
-  rcon "game_type 1"
-  rcon "game_mode 2"
-
-  # Pure DM respawn style
-  rcon "mp_maxrounds 0"
-  rcon "mp_respawn_on_death_ct 1"
-  rcon "mp_respawn_on_death_t 1"
-
-  apply_common_team_settings
+  rcon "exec gamemode_deathmatch_server.cfg" || true
 }
 
-# Retakes preset:
-# Uses competitive base; if Valve configs are present they will be used.
+# Retakes preset (if configs exist, otherwise exec is ignored)
 set_mode_retakes() {
   set_mode_core 0 1
   rcon "exec gamemode_retakes.cfg" || true
-  apply_common_team_settings
+  rcon "exec gamemode_retakes_server.cfg" || true
 }
 
-# Arms Race preset:
-# Standard CS config uses game_type 1 / game_mode 0.
+# Arms Race preset (if configs exist)
 set_mode_armsrace() {
   set_mode_core 1 0
   rcon "exec gamemode_armsrace.cfg" || true
-  apply_common_team_settings
+  rcon "exec gamemode_armsrace_server.cfg" || true
 }
 
 apply_mode_and_reload() {
@@ -452,37 +417,15 @@ apply_mode_and_reload() {
   # $2 = map name (optional; blank = reload current)
   local mode="$1" map="${2:-}" cur
 
-  # Ensure server is up before applying cvars
   ensure_server_running || { err "Server not ready; cannot apply mode."; return 1; }
 
   case "$mode" in
-    comp_mr12)
-      set_mode_competitive_MR12
-      # Per-mode server overrides (if present)
-      rcon "exec gamemode_competitive_server.cfg" || true
-      ;;
-    casual)
-      set_mode_casual
-      rcon "exec gamemode_casual_server.cfg" || true
-      ;;
-    wingman)
-      set_mode_wingman
-      rcon "exec gamemode_wingman_server.cfg" || true
-      ;;
-    deathmatch)
-      set_mode_deathmatch
-      rcon "exec gamemode_deathmatch_server.cfg" || true
-      ;;
-    retakes)
-      set_mode_retakes
-      # Your own server overrides for retakes (optional)
-      rcon "exec gamemode_retakes_server.cfg" || true
-      ;;
-    armsrace)
-      set_mode_armsrace
-      # Your own server overrides for arms race (optional)
-      rcon "exec gamemode_armsrace_server.cfg" || true
-      ;;
+    comp_mr12)  set_mode_competitive_MR12 ;;
+    casual)     set_mode_casual ;;
+    wingman)    set_mode_wingman ;;
+    deathmatch) set_mode_deathmatch ;;
+    retakes)    set_mode_retakes ;;
+    armsrace)   set_mode_armsrace ;;
     *)
       err "Unknown mode: $mode"
       return 1
@@ -511,6 +454,70 @@ apply_mode_and_reload() {
 
   say "Game mode switched to: $mode"
   ok "Mode applied: $mode"
+}
+
+# --- EDIT PER-MODE server.cfg with restart ---
+_edit_file_with_vi() { local f="$1"; "${EDITOR:-vi}" "$f"; }
+_ensure_file() { local f="$1"; [[ -f "$f" ]] || { mkdir -p "$(dirname "$f")"; : > "$f"; }; }
+
+edit_mode_server_cfg_menu() {
+  local cfgdir target base sel
+  cfgdir="$(cfg_path_guess)"
+  while true; do
+    echo; echo -e "${bold}${CLR_MODES}[Edit *_server.cfg (per mode)]${reset}"
+    echo "  1) competitive   -> gamemode_competitive_server.cfg"
+    echo "  2) casual        -> gamemode_casual_server.cfg"
+    echo "  3) wingman       -> gamemode_wingman_server.cfg"
+    echo "  4) deathmatch    -> gamemode_deathmatch_server.cfg"
+    echo "  5) retakes       -> gamemode_retakes_server.cfg"
+    echo "  6) arms race     -> gamemode_armsrace_server.cfg"
+    echo "  7) custom name..."
+    echo "  0) Back"
+    read -rp "Select: " sel
+    case "$sel" in
+      1) target="$cfgdir/gamemode_competitive_server.cfg" ;;
+      2) target="$cfgdir/gamemode_casual_server.cfg" ;;
+      3) target="$cfgdir/gamemode_wingman_server.cfg" ;;
+      4) target="$cfgdir/gamemode_deathmatch_server.cfg" ;;
+      5) target="$cfgdir/gamemode_retakes_server.cfg" ;;
+      6) target="$cfgdir/gamemode_armsrace_server.cfg" ;;
+      7)
+        read -rp "Enter base name (example: surf -> surf_server.cfg): " base
+        [[ -z "$base" ]] && { info "Cancelled."; continue; }
+        target="$cfgdir/${base}_server.cfg"
+        ;;
+      0|"") return 0 ;;
+      *) err "Invalid"; continue ;;
+    esac
+    _ensure_file "$target"
+    info "Opening: $target"
+    _edit_file_with_vi "$target"
+    ok "Saved. Restarting service to apply on next map load..."
+    restart_service || warn "Restart failed; check logs."
+  done
+}
+
+mode_menu() {
+  echo; echo -e "${bold}${CLR_MODES}[Game Mode Presets]${reset}"
+  echo -e "  ${CLR_MODES}1)${reset} Competitive MR12 (13-win, OT 3+3)"
+  echo -e "  ${CLR_MODES}2)${reset} Casual"
+  echo -e "  ${CLR_MODES}3)${reset} Wingman"
+  echo -e "  ${CLR_MODES}4)${reset} Deathmatch"
+  echo -e "  ${CLR_MODES}5)${reset} Retakes"
+  echo -e "  ${CLR_MODES}6)${reset} Arms Race"
+  echo -e "  ${CLR_MODES}0)${reset} Back"
+  echo
+  read -rp "Select: " sel
+  case "$sel" in
+    1) read -rp "Map to load (blank=keep current, 0=back): " m; [[ "$m" == "0" ]] && return 0; apply_mode_and_reload comp_mr12 "$m" ;;
+    2) read -rp "Map to load (blank=keep current, 0=back): " m; [[ "$m" == "0" ]] && return 0; apply_mode_and_reload casual "$m" ;;
+    3) read -rp "Map to load (blank=keep current, 0=back): " m; [[ "$m" == "0" ]] && return 0; apply_mode_and_reload wingman "$m" ;;
+    4) read -rp "Map to load (blank=keep current, 0=back): " m; [[ "$m" == "0" ]] && return 0; apply_mode_and_reload deathmatch "$m" ;;
+    5) read -rp "Map to load (blank=keep current, 0=back): " m; [[ "$m" == "0" ]] && return 0; apply_mode_and_reload retakes "$m" ;;
+    6) read -rp "Map to load (blank=keep current, 0=back): " m; [[ "$m" == "0" ]] && return 0; apply_mode_and_reload armsrace "$m" ;;
+    0|"") return 0 ;;
+    *) err "Invalid" ;;
+  esac
 }
 
 # --- SIMPLE CUSTOM MODE CREATOR (per-cfg) ---
