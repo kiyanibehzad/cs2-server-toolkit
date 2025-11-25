@@ -732,7 +732,6 @@ build_custom_mode() {
   fi
 }
 
-
 # ---------- WEAPONS BLOCK ----------
 weapons_block_show() { info "Current prohibited items:"; rcon "mp_items_prohibited"; }
 weapons_block_set()  { local list="$1"; rcon "mp_items_prohibited \"$list\""; ok "Applied: mp_items_prohibited=\"$list\""; }
