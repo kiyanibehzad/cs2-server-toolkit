@@ -720,33 +720,46 @@ weapons_menu() {
 }
 
 # ---------- CHICKENS ----------
-cheats_current() { rcon "sv_cheats" | grep -Eo '[0-9]+' | head -1 || echo 0; }
+# No need for sv_cheats in new CS2 for entity spawns
+
 chickens_add() {
-  local n="${1:-1}"; [[ "$n" =~ ^[0-9]+$ ]] || { err "Invalid number"; return 1; }
-  local prev; prev="$(cheats_current)"
-  rcon "sv_cheats 1"
-  for ((i=0;i<n;i++)); do rcon "ent_create chicken"; done
-  rcon "sv_cheats $prev"
+  local n="${1:-1}"
+  [[ "$n" =~ ^[0-9]+$ ]] || { err "Invalid number"; return 1; }
+
+  for ((i=0; i<n; i++)); do
+    rcon "spawn_entity chicken"
+  done
+
   ok "Spawned $n chickens."
 }
+
 chickens_clear() {
-  local prev; prev="$(cheats_current)"
-  rcon "sv_cheats 1"
-  rcon "ent_remove chicken"
-  rcon "sv_cheats $prev"
+  rcon "kick_entities chicken"
   ok "All chickens removed."
 }
+
 chickens_menu() {
   echo; echo -e "${bold}${CLR_FUN}[Chickens]${reset}"
   echo "  1) Add chickens (ask count)"
   echo "  2) Clear all chickens"
-  echo "  0) Back"; echo
+  echo "  0) Back"
+  echo
   read -rp "Select: " sel
   case "$sel" in
-    1) read -rp "How many? (blank=cancel): " N; [[ -z "$N" ]] && { info "Cancelled."; return 0; }; chickens_add "$N" ;;
-    2) chickens_clear ;;
-    0|"") return 0 ;;
-    *) err "Invalid";;
+    1)
+      read -rp "How many? (blank=cancel): " N
+      [[ -z "$N" ]] && { info "Cancelled."; return 0; }
+      chickens_add "$N"
+      ;;
+    2)
+      chickens_clear
+      ;;
+    0|"")
+      return 0
+      ;;
+    *)
+      err "Invalid"
+      ;;
   esac
 }
 
