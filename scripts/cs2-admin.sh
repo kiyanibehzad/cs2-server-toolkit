@@ -374,13 +374,6 @@ set_mode_competitive_MR12() {
   set_mode_core 0 1
   rcon "sv_skirmish_id 0"
   rcon "exec gamemode_competitive.cfg" || true
-  rcon "mp_halftime 1"
-  rcon "mp_maxrounds 24"
-  rcon "mp_overtime_enable 1"
-  rcon "mp_overtime_maxrounds 6"
-  rcon "mp_buytime 20"
-  rcon "mp_freezetime 15"
-  rcon "mp_round_restart_delay 7"
   rcon "mp_autokick 0"
   apply_common_team_settings
 }
@@ -390,9 +383,6 @@ set_mode_casual() {
   set_mode_core 0 0
   rcon "sv_skirmish_id 0"
   rcon "exec gamemode_casual.cfg" || true
-  rcon "mp_maxrounds 15"
-  rcon "mp_free_armor 1"
-  rcon "mp_solid_teammates 0"
   rcon "mp_autokick 0"
   apply_common_team_settings
 }
@@ -402,7 +392,6 @@ set_mode_wingman() {
   set_mode_core 0 2
   rcon "sv_skirmish_id 0"
   rcon "exec gamemode_competitive.cfg" || true
-  rcon "mp_maxrounds 16"
   apply_common_team_settings
 }
 
@@ -411,9 +400,6 @@ set_mode_deathmatch() {
   set_mode_core 1 2
   rcon "sv_skirmish_id 0"
   rcon "exec gamemode_deathmatch.cfg" || true
-  rcon "mp_respawn_on_death_ct 1"
-  rcon "mp_respawn_on_death_t 1"
-  rcon "mp_maxrounds 0"
   apply_common_team_settings
 }
 
