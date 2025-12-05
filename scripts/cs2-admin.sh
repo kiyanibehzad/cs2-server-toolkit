@@ -720,13 +720,8 @@ weapons_menu() {
 }
 
 # ---------- CHICKENS ----------
-# Simple chicken spawner using ent_create / ent_remove.
-# sv_cheats is toggled only around the commands that need it.
-
-cheats_current() {
-  # Return current sv_cheats value (0 or 1)
-  rcon "sv_cheats" | grep -Eo '[0-9]+' | head -1 || echo 0
-}
+# Spawn and clear chickens using ent_create / ent_remove_all.
+# sv_cheats must be enabled temporarily for these commands.
 
 chickens_add() {
   local n="${1:-1}"
@@ -737,31 +732,21 @@ chickens_add() {
     return 1
   fi
 
-  local prev
-  prev="$(cheats_current)"
-
-  # Enable chickens and cheats, then spawn
-  rcon "mp_enablechickens 1"
+  # Enable cheats, spawn N chickens, then disable cheats again
   rcon "sv_cheats 1"
-
-  local i
-  for ((i = 0; i < n; i++)); do
+  for ((i=0; i<n; i++)); do
     rcon "ent_create chicken"
   done
-
-  # Restore previous sv_cheats value
-  rcon "sv_cheats $prev"
+  rcon "sv_cheats 0"
 
   ok "Spawned $n chickens."
 }
 
 chickens_clear() {
-  local prev
-  prev="$(cheats_current)"
-
+  # Enable cheats, remove all chickens, then disable cheats again
   rcon "sv_cheats 1"
-  rcon "ent_remove chicken"
-  rcon "sv_cheats $prev"
+  rcon "ent_remove_all chicken"
+  rcon "sv_cheats 0"
 
   ok "All chickens removed."
 }
