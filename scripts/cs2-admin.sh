@@ -719,39 +719,43 @@ weapons_menu() {
   esac
 }
 
-# ---------- CHICKENS ----------
-# Spawn and clear chickens using ent_create / ent_remove_all.
-# sv_cheats must be enabled temporarily for these commands.
+# ---------- FUN: CHICKENS / GRAVITY / SPEED ----------
 
-chickens_add() {
+# Get current sv_cheats value (0/1)
+cheats_current() {
+  rcon "sv_cheats" 2>/dev/null | grep -Eo '[0-9]+' | head -1 || echo 0
+}
+
+# ----- Chickens -----
+fun_chickens_add() {
   local n="${1:-1}"
+  [[ "$n" =~ ^[0-9]+$ ]] || { err "Invalid number"; return 1; }
 
-  # Validate number
-  if ! [[ "$n" =~ ^[0-9]+$ ]] || [[ "$n" -le 0 ]]; then
-    err "Invalid number"
-    return 1
-  fi
+  local prev
+  prev="$(cheats_current)"
 
-  # Enable cheats, spawn N chickens, then disable cheats again
+  # ent_create requires sv_cheats 1
   rcon "sv_cheats 1"
   for ((i=0; i<n; i++)); do
     rcon "ent_create chicken"
   done
-  rcon "sv_cheats 0"
+  rcon "sv_cheats $prev"
 
   ok "Spawned $n chickens."
 }
 
-chickens_clear() {
-  # Enable cheats, remove all chickens, then disable cheats again
+fun_chickens_clear() {
+  local prev
+  prev="$(cheats_current)"
+
   rcon "sv_cheats 1"
-  rcon "ent_remove_all chicken"
-  rcon "sv_cheats 0"
+  rcon "ent_remove chicken"
+  rcon "sv_cheats $prev"
 
   ok "All chickens removed."
 }
 
-chickens_menu() {
+fun_chickens_menu() {
   echo
   echo -e "${bold}${CLR_FUN}[Chickens]${reset}"
   echo "  1) Add chickens (ask count)"
@@ -763,10 +767,10 @@ chickens_menu() {
     1)
       read -rp "How many? (blank=cancel): " N
       [[ -z "$N" ]] && { info "Cancelled."; return 0; }
-      chickens_add "$N"
+      fun_chickens_add "$N"
       ;;
     2)
-      chickens_clear
+      fun_chickens_clear
       ;;
     0|"")
       return 0
@@ -777,6 +781,80 @@ chickens_menu() {
   esac
 }
 
+# ----- Gravity -----
+# Safe wrapper to set gravity
+fun_gravity_set() {
+  local g="$1"
+  [[ "$g" =~ ^[0-9]+$ ]] || { err "Invalid gravity value"; return 1; }
+  rcon "sv_gravity $g"
+  ok "sv_gravity set to $g"
+}
+
+fun_gravity_menu() {
+  echo
+  echo -e "${bold}${CLR_FUN}[Gravity]${reset}"
+  echo "  1) Normal (800)"
+  echo "  2) Low gravity (400)"
+  echo "  3) Moon gravity (200)"
+  echo "  0) Back"
+  echo
+  read -rp "Select: " sel
+  case "$sel" in
+    1) fun_gravity_set 800 ;;
+    2) fun_gravity_set 400 ;;
+    3) fun_gravity_set 200 ;;
+    0|"") return 0 ;;
+    *) err "Invalid" ;;
+  esac
+}
+
+# ----- Speed (host_timescale) -----
+fun_speed_set() {
+  local scale="$1"
+  # host_timescale requires sv_cheats 1
+  rcon "sv_cheats 1"
+  rcon "host_timescale $scale"
+  ok "host_timescale set to $scale"
+}
+
+fun_speed_menu() {
+  echo
+  echo -e "${bold}${CLR_FUN}[Speed / Time]${reset}"
+  echo "  1) Normal speed (1.0)"
+  echo "  2) Fast (1.5)"
+  echo "  3) Slow motion (0.5)"
+  echo "  0) Back"
+  echo
+  read -rp "Select: " sel
+  case "$sel" in
+    1) fun_speed_set 1.0 ;;
+    2) fun_speed_set 1.5 ;;
+    3) fun_speed_set 0.5 ;;
+    0|"") return 0 ;;
+    *) err "Invalid" ;;
+  esac
+}
+
+# ----- Main FUN menu -----
+fun_menu() {
+  while true; do
+    echo
+    echo -e "${bold}${CLR_FUN}[Fun menu]${reset}"
+    echo "  1) Chickens"
+    echo "  2) Gravity"
+    echo "  3) Speed / Slow motion"
+    echo "  0) Back"
+    echo
+    read -rp "Select: " sel
+    case "$sel" in
+      1) fun_chickens_menu ;;
+      2) fun_gravity_menu ;;
+      3) fun_speed_menu ;;
+      0|"") return 0 ;;
+      *) err "Invalid" ;;
+    esac
+  done
+}
 
 # ---------- JOIN PASSWORD (sv_password) ----------
 # Persist a key=value into .update.env (create or replace)
@@ -936,7 +1014,7 @@ banner() {
   echo -e "  ${CLR_WEAPONS}w)${reset} Weapons block menu"
   echo
   echo -e "${bold}${CLR_FUN}[Fun]${reset}"
-  echo -e "  ${CLR_FUN}h)${reset} Chickens menu"
+  echo -e "  ${CLR_FUN}f)${reset} Fun menu (chickens / gravity / speed)"
   echo
   echo -e "${bold}${CLR_EXIT}[EXIT]${reset}"
   echo -e "  ${CLR_EXIT}e)${reset} Exit"
@@ -984,7 +1062,7 @@ ui_loop() {
       C) create_custom_mode ;;
       S) edit_mode_server_cfg_menu ;;
       w) weapons_menu ;;
-      h) chickens_menu ;;
+      f) fun_menu ;;
 
       # Exit
       e) ok "Bye"; break ;;
