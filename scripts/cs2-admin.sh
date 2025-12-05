@@ -720,26 +720,55 @@ weapons_menu() {
 }
 
 # ---------- CHICKENS ----------
-# No need for sv_cheats in new CS2 for entity spawns
+# Simple chicken spawner using ent_create / ent_remove.
+# sv_cheats is toggled only around the commands that need it.
+
+cheats_current() {
+  # Return current sv_cheats value (0 or 1)
+  rcon "sv_cheats" | grep -Eo '[0-9]+' | head -1 || echo 0
+}
 
 chickens_add() {
   local n="${1:-1}"
-  [[ "$n" =~ ^[0-9]+$ ]] || { err "Invalid number"; return 1; }
 
-  for ((i=0; i<n; i++)); do
-    rcon "spawn_entity chicken"
+  # Validate number
+  if ! [[ "$n" =~ ^[0-9]+$ ]] || [[ "$n" -le 0 ]]; then
+    err "Invalid number"
+    return 1
+  fi
+
+  local prev
+  prev="$(cheats_current)"
+
+  # Enable chickens and cheats, then spawn
+  rcon "mp_enablechickens 1"
+  rcon "sv_cheats 1"
+
+  local i
+  for ((i = 0; i < n; i++)); do
+    rcon "ent_create chicken"
   done
+
+  # Restore previous sv_cheats value
+  rcon "sv_cheats $prev"
 
   ok "Spawned $n chickens."
 }
 
 chickens_clear() {
-  rcon "kick_entities chicken"
+  local prev
+  prev="$(cheats_current)"
+
+  rcon "sv_cheats 1"
+  rcon "ent_remove chicken"
+  rcon "sv_cheats $prev"
+
   ok "All chickens removed."
 }
 
 chickens_menu() {
-  echo; echo -e "${bold}${CLR_FUN}[Chickens]${reset}"
+  echo
+  echo -e "${bold}${CLR_FUN}[Chickens]${reset}"
   echo "  1) Add chickens (ask count)"
   echo "  2) Clear all chickens"
   echo "  0) Back"
