@@ -375,6 +375,11 @@ set_mode_competitive_MR12() {
   rcon "sv_skirmish_id 0"
   rcon "exec gamemode_competitive.cfg" || true
   rcon "mp_autokick 0"
+  rcon "mp_overtime_enable 1"
+  rcon "mp_overtime_maxrounds 6"
+  rcon "mp_overtime_startmoney 10000"
+  rcon "mp_overtime_halftime_pausetimer 1"
+  rcon "mp_match_can_clinch 1"
   apply_common_team_settings
 }
 
