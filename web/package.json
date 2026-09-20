@@ -1,0 +1,13 @@
+{
+  "name": "cs2-server-web-panel",
+  "version": "1.0.0",
+  "description": "Interactive Web Panel for CS2 Server Toolkit",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

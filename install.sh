@@ -78,7 +78,7 @@ echo
 # ---------- Deps ----------
 if command -v apt-get >/dev/null 2>&1; then
   sudo apt-get update
-  sudo apt-get install -y curl ca-certificates lib32gcc-s1 git build-essential
+  sudo apt-get install -y curl ca-certificates lib32gcc-s1 git build-essential nodejs npm
 fi
 
 # ---------- SteamCMD ----------
@@ -105,7 +105,15 @@ mkdir -p "$CS2_DIR" "$CS2_HOME/.config/systemd/user" "$CS2_DIR/backups"
 # ---------- Copy scripts ----------
 install -m 0755 scripts/cs2-admin.sh       "$CS2_DIR/cs2-admin.sh"       || true
 install -m 0755 scripts/cs2-safe-update.sh "$CS2_DIR/cs2-safe-update.sh"
+install -m 0755 scripts/cs2-web.sh         "$CS2_DIR/cs2-web.sh"         || true
 install -m 0755 scripts/start.sh           "$CS2_DIR/start.sh"
+
+# ---------- Web Panel files ----------
+mkdir -p "$CS2_DIR/web"
+cp -r web/* "$CS2_DIR/web/" 2>/dev/null || true
+if command -v npm >/dev/null 2>&1 && [ -d "$CS2_DIR/web" ]; then
+  (cd "$CS2_DIR/web" && npm install --omit=dev) || true
+fi
 
 # ---------- Patch placeholders ----------
 sed -i "s|CS2USER|$CS2_USER|g" systemd/cs2-ds.env 2>/dev/null || true
@@ -122,6 +130,9 @@ RCON_PASS="$RCON_PASS"
 SERVER_NAME="$SERVER_NAME"
 SERVER_PASS="$SERVER_PASS"
 GSLT="$GSLT"
+WEB_PORT="3000"
+WEB_ADMIN_USER="admin"
+WEB_ADMIN_PASS="$RCON_PASS"
 EOV
 chmod 600 "$CS2_DIR/.update.env"
 
@@ -149,6 +160,7 @@ mkdir -p "$(dirname "$CFG")"
 # ---------- Systemd units ----------
 install -m 0644 systemd/cs2-ds.env     "$CS2_HOME/.config/systemd/user/cs2-ds.env"
 install -m 0644 systemd/cs2-ds.service "$CS2_HOME/.config/systemd/user/cs2-ds.service"
+install -m 0644 systemd/cs2-web.service "$CS2_HOME/.config/systemd/user/cs2-web.service"
 
 if [[ "$WITH_TIMER" -eq 1 ]]; then
   install -m 0644 systemd/cs2-update.service "$CS2_HOME/.config/systemd/user/cs2-update.service"
@@ -165,6 +177,7 @@ fi
 loginctl enable-linger "$CS2_USER" 2>/dev/null || sudo loginctl enable-linger "$CS2_USER" || true
 systemctl --user daemon-reload
 systemctl --user enable --now cs2-ds
+systemctl --user enable --now cs2-web || true
 [[ "$WITH_TIMER" -eq 1 ]]      && systemctl --user enable --now cs2-update.timer      || true
 [[ "$WITH_SAFE_CHECK" -eq 1 ]] && systemctl --user enable --now cs2-checkupdate.timer || true
 
@@ -180,5 +193,9 @@ echo " RCON pass   : (hidden)"
 echo " Server name : $SERVER_NAME"
 echo " Join pass   : $( [ -n "$SERVER_PASS" ] && echo set || echo none )"
 echo " GSLT        : $( [ -n "$GSLT" ] && echo set || echo none )"
+echo
+echo " Web Panel   : http://${HOST_IP}:3000"
+echo " Web User    : admin"
+echo " Web Pass    : (same as RCON password)"
 echo
 echo "Run admin menu with: $CS2_HOME/admin-cs2"

@@ -931,6 +931,36 @@ join_password_menu() {
   done
 }
 
+web_panel_menu() {
+  local web_script="$CS2_DIR/cs2-web.sh"
+  if [[ ! -f "$web_script" && -f "$(dirname "$0")/cs2-web.sh" ]]; then
+    web_script="$(dirname "$0")/cs2-web.sh"
+  fi
+  while true; do
+    echo
+    if [[ -x "$web_script" ]]; then
+      "$web_script" info
+    else
+      echo -e "${yellow}[!] Web panel script not found at $web_script${reset}"
+    fi
+    echo
+    echo "  1) Start Web Panel"
+    echo "  2) Stop Web Panel"
+    echo "  3) Restart Web Panel"
+    echo "  4) View Web Panel Logs"
+    echo "  0) Back"
+    read -rp "Select: " ws_opt
+    case "$ws_opt" in
+      1) [[ -x "$web_script" ]] && "$web_script" start ;;
+      2) [[ -x "$web_script" ]] && "$web_script" stop ;;
+      3) [[ -x "$web_script" ]] && "$web_script" restart ;;
+      4) [[ -x "$web_script" ]] && "$web_script" logs ;;
+      0|"") return 0 ;;
+      *) err "Invalid selection" ;;
+    esac
+  done
+}
+
 # Update banner data from "status"
 fetch_banner_stats() {
   local out
@@ -1004,8 +1034,8 @@ banner() {
   echo -e "  ${CLR_TOOLS}x)${reset} Backup cfg   ${CLR_TOOLS}c)${reset} Custom RCON"
   echo -e "  ${CLR_TOOLS}T)${reset} Safe update now  ${CLR_TOOLS}t)${reset} Update timer status  ${CLR_TOOLS}G)${reset} Update toolkit (git)"
   echo
-  echo -e "${bold}${cyan}[Access]${reset}"
-  echo -e "  ${cyan}J)${reset} Join password menu"
+  echo -e "${bold}${cyan}[Access & Web]${reset}"
+  echo -e "  ${cyan}J)${reset} Join password menu   ${cyan}W)${reset} Web Panel menu"
   echo
   echo -e "${bold}${CLR_BANS}[Bans]${reset}"
   echo -e "  ${CLR_BANS}B)${reset} List banned  ${CLR_BANS}U)${reset} Unban (select from list)"
@@ -1061,6 +1091,7 @@ ui_loop() {
 
       # Access / Bans / Modes / Weapons / Fun
       J|j) join_password_menu ;;
+      W) web_panel_menu ;;
       B) list_banned || true ;;
       U) unban_select || true ;;
       P) mode_menu ;;
@@ -1096,6 +1127,7 @@ case "$cmd" in
   list-banned) list_banned ;;
   unban-select) unban_select ;;
   join-pass-menu) join_password_menu ;;
+  web|web-panel) web_panel_menu ;;
   safe-update) safe_update_now ;;
   show-timer) show_update_timer ;;
   update-toolkit) update_toolkit_git ;;
