@@ -70,6 +70,18 @@ Looking for a reliable VPS or dedicated server for CS2?
   ~/admin-cs2
   ```
 
+- **Web Admin Panel**  
+  Manage your server directly from your browser with real-time RCON console, live logs, map changers, and match controls:
+  - **URL:** `http://<YOUR_SERVER_IP>:3000`
+  - **Username:** `admin`
+  - **Password:** Same as your server RCON password (configured in `.update.env`)
+  - **Service control:**
+    ```bash
+    systemctl --user start cs2-web
+    systemctl --user restart cs2-web
+    systemctl --user stop cs2-web
+    ```
+
 - **Check logs**
   ```bash
   journalctl --user -u cs2-ds -f

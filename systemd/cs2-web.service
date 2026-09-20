@@ -1,0 +1,17 @@
+[Unit]
+Description=CS2 Server Toolkit Web Panel (user)
+After=network-online.target cs2-ds.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/cs2-ds/web
+EnvironmentFile=-%h/cs2-ds/.update.env
+ExecStart=/usr/bin/env node %h/cs2-ds/web/server.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

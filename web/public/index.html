@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>CS2 Server Toolkit | Web Panel</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Vazirmatn:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- LOGIN OVERLAY -->
+  <div id="login-modal" class="modal-overlay">
+    <div class="login-card">
+      <div class="logo-area">
+        <div class="cs2-icon">CS2</div>
+        <h2>پنل مدیریت سرور CS2</h2>
+        <p class="subtitle">برای دسترسی به کنسول و تنظیمات سرور وارد شوید</p>
+      </div>
+      <form id="login-form">
+        <div class="form-group">
+          <label for="username">نام کاربری ادمین</label>
+          <input type="text" id="username" placeholder="admin" required autocomplete="username" dir="ltr">
+        </div>
+        <div class="form-group">
+          <label for="password">رمز عبور</label>
+          <input type="password" id="password" placeholder="••••••••" required autocomplete="current-password" dir="ltr">
+        </div>
+        <div id="login-error" class="alert-box error hidden"></div>
+        <button type="submit" id="login-btn" class="btn btn-primary btn-block">
+          <span class="btn-text">ورود به پنل</span>
+          <span class="spinner hidden"></span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MAIN APP CONTAINER -->
+  <div id="app" class="hidden">
+    <!-- TOP NAVBAR -->
+    <header class="navbar">
+      <div class="navbar-brand">
+        <div class="brand-badge">CS2</div>
+        <div class="brand-info">
+          <h1 id="nav-server-name">Counter-Strike 2 Server</h1>
+          <div class="server-meta">
+            <span id="service-badge" class="status-indicator online">
+              <span class="dot"></span> <span id="service-text">سرویس فعال</span>
+            </span>
+            <span class="meta-sep">•</span>
+            <span id="nav-host-port" dir="ltr" class="mono">127.0.0.1:27015</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="navbar-actions">
+        <div class="user-profile">
+          <span class="user-badge" id="nav-username">admin</span>
+          <button id="logout-btn" class="btn btn-sm btn-outline-danger" title="خروج">خروج</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- SECURITY WARNING BANNER -->
+    <div id="security-alert" class="security-warning-banner hidden">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+      <span><strong>هشدار امنیتی:</strong> رمز عبور پیش‌فرض/ساده فعال است! لطفاً جهت جلوگیری از نفوذ، متغیر <code>WEB_ADMIN_PASS</code> را در فایل <code>.update.env</code> سرور تغییر دهید.</span>
+    </div>
+
+    <!-- NAVIGATION TABS -->
+    <nav class="nav-tabs-container">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="tab-console">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          کنسول RCON
+        </button>
+        <button class="tab-btn" data-tab="tab-logs">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          لاگ‌های زنده سرور
+        </button>
+        <button class="tab-btn" data-tab="tab-actions">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          دستورات و عملیات سریع
+        </button>
+        <button class="tab-btn" data-tab="tab-status">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+          وضعیت سیستم و کنترل
+        </button>
+      </div>
+    </nav>
+
+    <!-- CONTENT PANELS -->
+    <main class="main-content">
+      
+      <!-- TAB 1: RCON CONSOLE -->
+      <section id="tab-console" class="tab-pane active">
+        <div class="terminal-card">
+          <div class="terminal-header">
+            <div class="terminal-title">
+              <span class="terminal-dot red"></span>
+              <span class="terminal-dot yellow"></span>
+              <span class="terminal-dot green"></span>
+              <span class="title-text">Source RCON Interactive Terminal</span>
+            </div>
+            <div class="terminal-actions">
+              <button id="clear-console-btn" class="btn btn-xs btn-outline">پاکسازی</button>
+              <button id="quick-status-btn" class="btn btn-xs btn-accent">status</button>
+            </div>
+          </div>
+          <div id="terminal-output" class="terminal-body mono" dir="ltr">
+            <div class="log-entry system">[System] اتصال به کنسول RCON برقرار است. آماده دریافت دستورات...</div>
+            <div class="log-entry info">[Hint] می‌توانید دستوراتی مانند status, maps, mp_restartgame 1 یا bot_kick را وارد کنید.</div>
+          </div>
+          <form id="rcon-form" class="terminal-input-bar" dir="ltr">
+            <span class="prompt-symbol">&gt;</span>
+            <input type="text" id="rcon-input" placeholder="دستور RCON را تایپ کنید و Enter بزنید (مانند status)..." autocomplete="off" spellcheck="false">
+            <button type="submit" class="btn btn-primary btn-sm">ارسال</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- TAB 2: LIVE LOGS -->
+      <section id="tab-logs" class="tab-pane">
+        <div class="terminal-card">
+          <div class="terminal-header">
+            <div class="terminal-title">
+              <span class="title-text">Live Server Logs (journalctl -u cs2-ds -f)</span>
+            </div>
+            <div class="terminal-actions">
+              <input type="text" id="logs-filter" placeholder="فیلتر لاگ..." class="input-xs" dir="ltr">
+              <label class="checkbox-label">
+                <input type="checkbox" id="auto-scroll-logs" checked> اسکرول خودکار
+              </label>
+              <button id="clear-logs-btn" class="btn btn-xs btn-outline">پاکسازی</button>
+            </div>
+          </div>
+          <div id="logs-output" class="terminal-body mono" dir="ltr">
+            <div class="log-entry system">[System] در حال دریافت جریان زنده لاگ‌های سرور...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: QUICK ACTIONS -->
+      <section id="tab-actions" class="tab-pane">
+        <div class="actions-grid">
+          
+          <!-- Match Controls -->
+          <div class="action-card">
+            <h3>🎮 مدیریت بازی و مسابقه</h3>
+            <div class="btn-group-grid">
+              <button class="btn btn-action" data-rcon="mp_restartgame 1">ریستارت بازی (Restart 1s)</button>
+              <button class="btn btn-action" data-rcon="mp_warmup_end">پایان وارم‌آپ (End Warmup)</button>
+              <button class="btn btn-action" data-rcon="mp_warmup_start">شروع وارم‌آپ (Start Warmup)</button>
+              <button class="btn btn-action" data-rcon="mp_pause_match">توقف مسابقه (Pause)</button>
+              <button class="btn btn-action" data-rcon="mp_unpause_match">ادامه مسابقه (Unpause)</button>
+              <button class="btn btn-action" data-rcon="mp_swapteams">تعویض تیم‌ها (Swap Teams)</button>
+            </div>
+          </div>
+
+          <!-- Maps Switcher -->
+          <div class="action-card">
+            <h3>🗺 تغییر مپ سریع</h3>
+            <div class="maps-grid">
+              <button class="btn btn-map" data-rcon="changelevel de_dust2"><span>de_dust2</span></button>
+              <button class="btn btn-map" data-rcon="changelevel de_mirage"><span>de_mirage</span></button>
+              <button class="btn btn-map" data-rcon="changelevel de_inferno"><span>de_inferno</span></button>
+              <button class="btn btn-map" data-rcon="changelevel de_nuke"><span>de_nuke</span></button>
+              <button class="btn btn-map" data-rcon="changelevel de_ancient"><span>de_ancient</span></button>
+              <button class="btn btn-map" data-rcon="changelevel de_anubis"><span>de_anubis</span></button>
+              <button class="btn btn-map" data-rcon="changelevel de_overpass"><span>de_overpass</span></button>
+              <button class="btn btn-map" data-rcon="changelevel de_vertigo"><span>de_vertigo</span></button>
+            </div>
+          </div>
+
+          <!-- Game Modes -->
+          <div class="action-card">
+            <h3>🏆 تغییر مود بازی (Game Modes)</h3>
+            <div class="btn-group-grid">
+              <button class="btn btn-mode" data-rcon="game_type 0; game_mode 1; exec gamemode_competitive.cfg; mp_restartgame 1">Competitive (رقابتی)</button>
+              <button class="btn btn-mode" data-rcon="game_type 0; game_mode 0; exec gamemode_casual.cfg; mp_restartgame 1">Casual (کژوال)</button>
+              <button class="btn btn-mode" data-rcon="game_type 1; game_mode 2; exec gamemode_deathmatch.cfg; mp_restartgame 1">Deathmatch (دثمچ)</button>
+              <button class="btn btn-mode" data-rcon="game_type 0; game_mode 2; exec gamemode_wingman.cfg; mp_restartgame 1">Wingman (وینگ‌من)</button>
+            </div>
+          </div>
+
+          <!-- Bots Management -->
+          <div class="action-card">
+            <h3>🤖 مدیریت بات‌ها</h3>
+            <div class="btn-group-grid">
+              <button class="btn btn-action" data-rcon="bot_kick">کیک همه بات‌ها (Kick All)</button>
+              <button class="btn btn-action" data-rcon="bot_add">افزودن بات (Add Bot)</button>
+              <button class="btn btn-action" data-rcon="bot_stop 1">توقف حرکت بات‌ها (Stop)</button>
+              <button class="btn btn-action" data-rcon="bot_stop 0">فعالسازی حرکت بات‌ها (Resume)</button>
+              <button class="btn btn-action" data-rcon="bot_quota 0">صفر کردن ظرفیت بات (Quota 0)</button>
+              <button class="btn btn-action" data-rcon="bot_difficulty 3">سختی زیاد بات‌ها (Hard)</button>
+            </div>
+          </div>
+
+          <!-- Weapons Restrictions -->
+          <div class="action-card">
+            <h3>🔫 محدودیت سلاح‌ها</h3>
+            <div class="btn-group-grid">
+              <button class="btn btn-action" data-rcon="mp_items_prohibited ''">آزادسازی همه سلاح‌ها</button>
+              <button class="btn btn-action" data-rcon="mp_items_prohibited 'weapon_awp,weapon_ssg08'">ممنوعیت AWP و Scout</button>
+              <button class="btn btn-action" data-rcon="mp_items_prohibited 'weapon_ak47,weapon_m4a1,weapon_m4a1_silencer'">ممنوعیت رایفل‌ها (No Rifles)</button>
+            </div>
+          </div>
+
+          <!-- Fun & Cheats -->
+          <div class="action-card">
+            <h3>🎉 سرگرمی و چیت‌ها (Fun)</h3>
+            <div class="btn-group-grid">
+              <button class="btn btn-action" data-rcon="sv_cheats 1">فعالسازی sv_cheats 1</button>
+              <button class="btn btn-action" data-rcon="sv_cheats 0">غیرفعالسازی sv_cheats 0</button>
+              <button class="btn btn-action" data-rcon="mp_enablechickens 1">مرغ‌ها فعال (Chickens ON)</button>
+              <button class="btn btn-action" data-rcon="mp_enablechickens 0">مرغ‌ها غیرفعال (OFF)</button>
+              <button class="btn btn-action" data-rcon="sv_gravity 400">جاذبه کم (Low Gravity)</button>
+              <button class="btn btn-action" data-rcon="sv_gravity 800">جاذبه عادی (Normal Gravity)</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- TAB 4: SYSTEM STATUS & SERVICE CONTROLS -->
+      <section id="tab-status" class="tab-pane">
+        <div class="status-grid">
+          
+          <div class="stat-card">
+            <span class="stat-title">وضعیت سرویس CS2</span>
+            <span id="stat-service-status" class="stat-value highlight">در حال بررسی...</span>
+            <div class="service-ctl-buttons">
+              <button class="btn btn-sm btn-success" data-service="start">استارت سرویس</button>
+              <button class="btn btn-sm btn-warning" data-service="restart">ریستارت سرویس</button>
+              <button class="btn btn-sm btn-danger" data-service="stop">توقف سرویس</button>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <span class="stat-title">مصرف رم سرور (RAM)</span>
+            <span id="stat-ram-usage" class="stat-value">-- / -- GB</span>
+            <div class="progress-bar-container">
+              <div id="ram-progress" class="progress-bar" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <span class="stat-title">آدرس سرور و RCON</span>
+            <span id="stat-host-port" class="stat-value mono" dir="ltr">--:--</span>
+            <span class="stat-sub">پورت RCON اختصاصی سرور</span>
+          </div>
+
+          <div class="stat-card">
+            <span class="stat-title">مدت زمان روشن بودن سرور (Uptime)</span>
+            <span id="stat-uptime" class="stat-value">--</span>
+            <span id="stat-os" class="stat-sub">--</span>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
