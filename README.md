@@ -5,10 +5,10 @@
 
 ⚡ One-command installer & admin toolkit for Counter-Strike 2 dedicated servers.  
 Includes:
-- Automatic installation & updates (via `systemd --user` timers)
+- Automatic installation & player-safe updates (via `systemd --user` timers)
 - Interactive admin menu (maps, game modes, bans, weapons block, chickens, logs, restart)
 - User-level `systemd` service (auto-start after reboot with linger)
-- Safe update mechanism (avoids restarts while players are in game)
+- One safe update path for timers and manual updates
 
 ---
 
@@ -48,12 +48,18 @@ Looking for a reliable VPS or dedicated server for CS2?
    chmod +x install.sh
    ./install.sh
    ```
-   The installer will ask for:
+   The installer will ask for these values on the first run:
    - Public server IP (Your server or virtual machine IP)
    - RCON password (Mandatory)
    - Server name (Seen on Steam/Game)
    - Optional join password (It is recommended)
    - [Game Server Login Token (GSLT)](https://steamcommunity.com/dev/managegameservers)
+
+   Run the installer as the game user, not root. Running it again refreshes the
+   toolkit files and systemd units while keeping existing game data and settings.
+   To update the game itself, use the updater below.
+   If an older `~/update-cs2.sh` exists, the installer saves it with a
+   `.legacy-<timestamp>` suffix before replacing it with the safe entry point.
 
 ---
 
@@ -172,17 +178,46 @@ mp_enablechickens 1
 
 ---
 
-## 🔄 Auto Update
+## 🔄 Updates
 
-Two timers are installed automatically:
+Two timers invoke the same player-safe updater:
 
-- `cs2-update.timer` → daily update at 06:00  
-- `cs2-checkupdate.timer` → safe check every 30 min (updates only if empty)
+- `cs2-update.timer` → daily check at 06:00
+- `cs2-checkupdate.timer` → check every 30 minutes
+
+When a new build is available, the updater checks the player count through
+RCON. If players are present or RCON cannot be trusted, it defers the update.
+It also prevents overlapping runs and restarts a previously running server if
+SteamCMD fails. A stopped server remains stopped.
+
+Run a check or request an update manually:
+
+```bash
+~/cs2-ds/cs2-safe-update.sh --check
+~/cs2-ds/cs2-safe-update.sh --force
+# Existing servers can also use the familiar command:
+~/update-cs2.sh
+```
+
+`--force` skips only the build comparison. It still defers while players are
+connected or RCON status is unavailable.
 
 Check timers:
 ```bash
 systemctl --user list-timers --all | grep cs2
 ```
+
+Update and server logs:
+
+```bash
+tail -f ~/cs2-ds/update.log
+journalctl --user -u cs2-checkupdate.service -n 50 --no-pager
+journalctl --user -u cs2-ds.service -n 50 --no-pager
+```
+
+The installer restricts `.update.env` and `cs2server.cfg` to the game user.
+Do not commit these files or paste their contents into an issue: they hold
+RCON credentials and possibly the GSLT.
 
 ---
 

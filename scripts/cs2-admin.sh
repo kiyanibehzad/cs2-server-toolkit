@@ -7,7 +7,7 @@ set -uo pipefail
 # ---------- CONFIG ----------
 # Load values from installer (if present)
 CS2_USER="${CS2_USER:-$(id -un)}"
-CS2_HOME="${CS2_HOME:-/home/$CS2_USER}"
+CS2_HOME="${CS2_HOME:-$HOME}"
 CS2_DIR="${CS2_DIR:-$CS2_HOME/cs2-ds}"
 CONF="$CS2_DIR/.update.env"
 [[ -f "$CONF" ]] && . "$CONF"
@@ -15,7 +15,7 @@ CONF="$CS2_DIR/.update.env"
 # RCON / networking (fallbacks if not set in .update.env)
 RCON_HOST="${HOST_IP:-127.0.0.1}"
 RCON_PORT="${PORT:-27015}"
-RCON_PASS="${RCON_PASS:-ChangeMe123!}"
+RCON_PASS="${RCON_PASS:-}"
 
 # Paths and service
 STEAMCMD="${STEAMCMD:-$CS2_HOME/steamcmd/steamcmd.sh}"
@@ -78,7 +78,7 @@ pause() { read -rp "$(echo -e "${bold}${blue}Press Enter to continue...${reset} 
 
 # ---------- HELPERS ----------
 require_cmd() { command -v "$1" >/dev/null 2>&1 || { err "'$1' is not installed"; return 1; }; }
-rcon() { require_cmd mcrcon || return 1; mcrcon -H "$RCON_HOST" -P "$RCON_PORT" -p "$RCON_PASS" "$@"; }
+rcon() { require_cmd mcrcon || return 1; [[ -n "$RCON_PASS" ]] || { err "RCON password is missing"; return 1; }; mcrcon -H "$RCON_HOST" -P "$RCON_PORT" -p "$RCON_PASS" "$@"; }
 
 has_map() {
   local map="$1"
@@ -212,14 +212,8 @@ change_map() {
 }
 
 update_server() {
-  info "Updating server via steamcmd (AppID 730)..."
-  if [[ -x "$STEAMCMD" ]]; then
-    "$STEAMCMD" +login anonymous +app_update 730 validate +quit
-  else
-    require_cmd steamcmd || return 1
-    steamcmd +login anonymous +app_update 730 validate +quit
-  fi
-  ok "Update complete."
+  info "Checking players and updating server (AppID 730)..."
+  "$CS2_DIR/cs2-safe-update.sh" --force
 }
 
 # ---------- USER SERVICE OPS ----------
@@ -310,15 +304,19 @@ current_map() {
 backup_cfg() {
   mkdir -p "$BACKUP_DIR"
   local ts; ts="$(date +%Y%m%d-%H%M%S)"
-  tar -czf "$BACKUP_DIR/cfg-$ts.tar.gz" "$CS2_DIR/game"/*/cfg 2>/dev/null || true
-  ok "Backup stored at ${bold}$BACKUP_DIR/cfg-$ts.tar.gz${reset}"
+  if (umask 077; tar -czf "$BACKUP_DIR/cfg-$ts.tar.gz" "$CS2_DIR/game"/*/cfg); then
+    ok "Backup stored at ${bold}$BACKUP_DIR/cfg-$ts.tar.gz${reset}"
+  else
+    err "Config backup failed."
+    return 1
+  fi
 }
 
 # ---------- SAFE UPDATE INTEGRATION ----------
 safe_update_now() {
   local script="$CS2_DIR/cs2-safe-update.sh"
   if [[ -x "$script" ]]; then
-    /bin/bash -lc "$script"
+    "$script" --check
   else
     warn "cs2-safe-update.sh not found or not executable at $script"
   fi
@@ -865,13 +863,28 @@ fun_menu() {
 # Persist a key=value into .update.env (create or replace)
 persist_update_env() {
   local key="$1" val="$2"
-  mkdir -p "$(dirname "$CONF")"
-  touch "$CONF"
-  if grep -qE "^${key}=" "$CONF"; then
-    sed -i "s|^${key}=.*|${key}=${val}|g" "$CONF"
-  else
-    printf '%s=%s\n' "$key" "$val" >> "$CONF"
+  local tmp
+  tmp="$(mktemp "${CONF}.XXXXXX")" || return 1
+  if [[ -f "$CONF" ]]; then
+    grep -v "^${key}=" "$CONF" > "$tmp" || true
   fi
+  printf '%s=%q\n' "$key" "$val" >> "$tmp"
+  chmod 600 "$tmp"
+  mv -f "$tmp" "$CONF"
+}
+
+persist_server_password() {
+  local password="$1" cfg tmp
+  cfg="$(cfg_path_guess)/cs2server.cfg"
+  [[ -f "$cfg" ]] || { err "Server config missing: $cfg"; return 1; }
+  tmp="$(mktemp "${cfg}.XXXXXX")" || return 1
+  awk -v password="$password" '
+    $1 == "sv_password" { print "sv_password \"" password "\""; found=1; next }
+    { print }
+    END { if (!found) print "sv_password \"" password "\"" }
+  ' "$cfg" > "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 600 "$tmp"
+  mv -f "$tmp" "$cfg"
 }
 
 # Always prefer live RCON value; fall back to .update.env
@@ -895,8 +908,8 @@ get_join_password() {
   fi
 
   # If live is empty, fall back to env variable (if any)
-  if [[ -z "$pw" && -n "${JOIN_PASS:-}" ]]; then
-    printf '%s' "$JOIN_PASS"
+  if [[ -z "$pw" && -n "${SERVER_PASS:-}" ]]; then
+    printf '%s' "$SERVER_PASS"
   else
     printf '%s' "$pw"
   fi
@@ -905,24 +918,27 @@ get_join_password() {
 join_password_menu() {
   while true; do
     local cur; cur="$(get_join_password)"
-    echo; echo -e "${bold}${cyan}[Join Password]${reset} (current: '${cur:-<empty>}')"
+    echo; echo -e "${bold}${cyan}[Join Password]${reset} (current: $( [[ -n "$cur" ]] && echo set || echo empty ))"
     echo "  1) Set password"
     echo "  2) Clear (no password)"
     echo "  0) Back"
     read -rp "Select: " s
     case "$s" in
       1)
-        read -rp "New password: " np
+        read -r -s -p "New password: " np; echo
         [[ -z "$np" ]] && { info "Cancelled."; continue; }
+        [[ "$np" != *[\;\"\\]* && ! "$np" =~ [[:cntrl:]] ]] || { err "Invalid character in password."; continue; }
         rcon "sv_password \"$np\"" || { err "Failed to set sv_password"; continue; }
-        persist_update_env "JOIN_PASS" "$np"
-        JOIN_PASS="$np"   # keep in-process value in sync
+        persist_update_env "SERVER_PASS" "$np" || { err "Could not save settings"; continue; }
+        persist_server_password "$np" || { err "Could not save server config"; continue; }
+        SERVER_PASS="$np"
         ok "sv_password updated."
         ;;
       2)
         rcon "sv_password \"\"" || { err "Failed to clear sv_password"; continue; }
-        persist_update_env "JOIN_PASS" ""
-        JOIN_PASS=""      # keep in-process value in sync
+        persist_update_env "SERVER_PASS" "" || { err "Could not save settings"; continue; }
+        persist_server_password "" || { err "Could not save server config"; continue; }
+        SERVER_PASS=""
         ok "Join password cleared."
         ;;
       0|"") return 0 ;;
@@ -977,7 +993,7 @@ banner() {
   echo -e "${bold}${CLR_TITLE}=== CS2 Quick Admin ===${reset}"
   echo
   if [[ -n "$jp" ]]; then
-    echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT};password ${jp}"
+    echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT} (join password required)"
   else
     echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT}"
   fi
@@ -1000,9 +1016,9 @@ banner() {
   echo -e "  ${CLR_ACTIONS}s)${reset} Status       ${CLR_ACTIONS}y)${reset} Say message  ${CLR_ACTIONS}a)${reset} Kick ALL"
   echo
   echo -e "${bold}${CLR_TOOLS}[Tools]${reset}"
-  echo -e "  ${CLR_TOOLS}u)${reset} Update       ${CLR_TOOLS}r)${reset} Restart svc  ${CLR_TOOLS}L)${reset} Live logs"
+  echo -e "  ${CLR_TOOLS}u)${reset} Force update (if empty)  ${CLR_TOOLS}r)${reset} Restart svc  ${CLR_TOOLS}L)${reset} Live logs"
   echo -e "  ${CLR_TOOLS}x)${reset} Backup cfg   ${CLR_TOOLS}c)${reset} Custom RCON"
-  echo -e "  ${CLR_TOOLS}T)${reset} Safe update now  ${CLR_TOOLS}t)${reset} Update timer status  ${CLR_TOOLS}G)${reset} Update toolkit (git)"
+  echo -e "  ${CLR_TOOLS}T)${reset} Safe update check  ${CLR_TOOLS}t)${reset} Update timer status  ${CLR_TOOLS}G)${reset} Update admin menu (git)"
   echo
   echo -e "${bold}${cyan}[Access]${reset}"
   echo -e "  ${cyan}J)${reset} Join password menu"

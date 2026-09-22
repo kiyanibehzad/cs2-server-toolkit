@@ -1,143 +1,138 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --- paths & constants ---
-USER_HOME="${HOME}"
-CS2_DIR="${USER_HOME}/cs2-ds"
-STEAMCMD="${USER_HOME}/steamcmd/steamcmd.sh"
-LOG="${CS2_DIR}/update.log"
-UNIT="cs2-ds"
+# All scheduled and manual game updates go through this script. --force skips
+# the build-ID comparison, but never bypasses the player check.
+MODE="${1:---check}"
+case "$MODE" in
+  --check|--force) ;;
+  *) echo "Usage: $0 [--check|--force]" >&2; exit 2 ;;
+esac
 
-APP=730                 # Use CS2 main app only
+CS2_HOME="${CS2_HOME:-$HOME}"
+CS2_DIR="${CS2_DIR:-$CS2_HOME/cs2-ds}"
+STEAMCMD="${STEAMCMD:-$CS2_HOME/steamcmd/steamcmd.sh}"
+UNIT="${SERVICE_NAME:-cs2-ds}"
+APP=730
+LOG="$CS2_DIR/update.log"
 MAX_UPDATE_TRIES=3
-RETRIES_APPINFO=5
-SLEEP_BETWEEN_TRIES=3
 
-ts()  { date -Is; }
-log() { echo "[safe-update] $*" | tee -a "$LOG"; }
+umask 077
+mkdir -p "$CS2_DIR"
+log() { printf '[safe-update] %s %s\n' "$(date -Is)" "$*" | tee -a "$LOG"; }
 
-steamcmd_ok() { [[ -x "$STEAMCMD" ]]; }
+[[ -x "$STEAMCMD" ]] || { log "SteamCMD missing: $STEAMCMD"; exit 127; }
+command -v flock >/dev/null || { log "flock is required"; exit 127; }
 
-reset_appinfo_cache() {
-  rm -f  "${USER_HOME}/Steam/appcache/appinfo.vdf"  || true
-  rm -rf "${USER_HOME}/Steam/appcache/httpcache"    || true
-  "$STEAMCMD" +login anonymous +app_info_update 1 +quit >/dev/null || true
+exec 9>"$CS2_DIR/.update.lock"
+flock -n 9 || { log "another update is in progress; skipping"; exit 0; }
+
+local_buildid() {
+  local manifest="$CS2_DIR/steamapps/appmanifest_${APP}.acf"
+  [[ -f "$manifest" ]] || return 1
+  awk -F'"' '/"buildid"/{print $4; exit}' "$manifest"
 }
 
-get_remote_buildid() {
+remote_buildid() {
   "$STEAMCMD" +login anonymous +app_info_update 1 +app_info_print "$APP" +quit \
-    | tr -d '\r' \
-    | awk -F\" '/"buildid"/{print $4; exit}' \
-  || true
+    | tr -d '\r' | awk -F'"' '/"buildid"/{print $4; exit}'
 }
 
-get_local_buildid() {
-  local mf="${CS2_DIR}/steamapps/appmanifest_${APP}.acf"
-  if [[ -f "$mf" ]]; then
-    awk -F\" '/"buildid"/{print $4; exit}' "$mf" && return 0
-  fi
-  echo ""
+# Return 0 when empty, 1 when occupied, and 2 when status cannot be trusted.
+players_empty() {
+  local host port pass output humans
+  [[ -r "$CS2_DIR/.update.env" ]] || return 2
+  # shellcheck disable=SC1091
+  . "$CS2_DIR/.update.env"
+  host="${HOST_IP:-127.0.0.1}"
+  port="${PORT:-27015}"
+  pass="${RCON_PASS:-}"
+  [[ -n "$pass" ]] && command -v mcrcon >/dev/null || return 2
+  output="$(mcrcon -H "$host" -P "$port" -p "$pass" status 2>/dev/null)" || return 2
+  humans="$(printf '%s\n' "$output" | awk -F'[, ]+' '/^players[[:space:]]*:/ {print $3; exit}')"
+  [[ "$humans" =~ ^[0-9]+$ ]] || return 2
+  (( humans == 0 ))
 }
 
-# Consider server "busy" if there are human players > 0
-server_is_busy() {
-  if ! command -v mcrcon >/dev/null 2>&1; then
-      return 1
-  fi
-  # Read RCON params from .update.env if present
-  local host="127.0.0.1" port="27015" pass=""
-  if [[ -f "${CS2_DIR}/.update.env" ]]; then
-    # shellcheck disable=SC1090
-    . "${CS2_DIR}/.update.env"
-    host="${HOST_IP:-$host}"
-    port="${PORT:-$port}"
-    pass="${RCON_PASS:-$pass}"
-  fi
-  local out
-  if [[ -n "$pass" ]]; then
-    out="$(mcrcon -H "$host" -P "$port" -p "$pass" status 2>/dev/null || true)"
-  else
-    # If no RCON, assume not busy
-    return 1
-  fi
-  # Parse "players  : X humans"
-  local humans
-  humans="$(echo "$out" | awk -F'[, ]+' '/^players[[:space:]]*:/{print $3; exit}' 2>/dev/null || echo "")"
-  [[ -n "$humans" && "$humans" =~ ^[0-9]+$ && "$humans" -gt 0 ]]
-}
-
-stop_server() {
-  systemctl --user stop "${UNIT}.service" || true
-  sleep 2
-}
-
-start_server() {
-  systemctl --user start "${UNIT}.service" || true
-}
-
-do_update() {
-  local i=1
-  while (( i <= MAX_UPDATE_TRIES )); do
-    log "steamcmd attempt ${i}/${MAX_UPDATE_TRIES}..."
-    if "$STEAMCMD" +login anonymous +app_update "$APP" validate +quit; then
+update_game() {
+  local attempt
+  for ((attempt=1; attempt<=MAX_UPDATE_TRIES; attempt++)); do
+    log "SteamCMD attempt $attempt/$MAX_UPDATE_TRIES"
+    if "$STEAMCMD" +force_install_dir "$CS2_DIR" +login anonymous +app_update "$APP" validate +quit; then
       return 0
     fi
-    (( i++ ))
-    sleep "$SLEEP_BETWEEN_TRIES"
+    (( attempt < MAX_UPDATE_TRIES )) && sleep 3
   done
   return 1
 }
 
-main() {
-  mkdir -p "$(dirname "$LOG")"
-  echo "[safe-update] ---- run $(ts) ----" >> "$LOG"
-
-  if ! steamcmd_ok; then
-    log "steamcmd not found at $STEAMCMD"
-    exit 127
+# The EXIT trap restores a server that was running before the update, even
+# when SteamCMD fails. A server that was already stopped remains stopped.
+restart_needed=0
+restore_server() {
+  local result=$?
+  trap - EXIT
+  if (( restart_needed )); then
+    if systemctl --user start "$UNIT"; then
+      log "server started"
+    else
+      log "ERROR: server could not be started"
+      result=1
+    fi
   fi
-
-  # Get remote buildid with retries
-  local remote=""
-  for ((i=1; i<=RETRIES_APPINFO; i++)); do
-    remote="$(get_remote_buildid)"
-    [[ -n "$remote" ]] && break
-    log "remote build empty; resetting appinfo cache and retrying (${i}/${RETRIES_APPINFO})..."
-    reset_appinfo_cache
-    sleep 1
-  done
-  if [[ -z "$remote" ]]; then
-    log "cannot fetch remote buildid; skip"
-    exit 0
-  fi
-
-  local localb=""
-  localb="$(get_local_buildid || true)"
-  log "local=${localb:-unknown} remote=${remote}"
-
-  if [[ -n "$localb" && "$localb" == "$remote" ]]; then
-    log "up-to-date"
-    exit 0
-  fi
-
-  if server_is_busy; then
-    log "players detected; skipping update for now"
-    exit 0
-  fi
-
-  log "stopping server for update..."
-  stop_server
-
-  if do_update; then
-    log "update OK; starting server..."
-    start_server
-    log "done"
-    exit 0
-  else
-    log "steamcmd failed; starting server back and exiting with error"
-    start_server
-    exit 1
-  fi
+  exit "$result"
 }
+trap restore_server EXIT
 
-main "$@"
+if [[ "$MODE" == --check ]]; then
+  remote=""
+  for attempt in 1 2 3; do
+    remote="$(remote_buildid || true)"
+    [[ "$remote" =~ ^[0-9]+$ ]] && break
+    sleep 2
+  done
+  [[ "$remote" =~ ^[0-9]+$ ]] || { log "remote build ID unavailable; skipping"; exit 1; }
+  localb="$(local_buildid || true)"
+  log "local=${localb:-unknown} remote=$remote"
+  if [[ -n "$localb" && "$localb" == "$remote" ]]; then
+    log "up to date"
+    exit 0
+  fi
+fi
+
+state="$(systemctl --user show "$UNIT" -p ActiveState --value 2>/dev/null)" || {
+  log "cannot query server service; skipping"
+  exit 1
+}
+case "$state" in
+  active)
+    if players_empty; then
+      log "server is empty"
+    else
+      result=$?
+      if (( result == 1 )); then
+        log "players detected; deferring update"
+        exit 0
+      fi
+      log "RCON status unknown; deferring update"
+      exit 1
+    fi
+    restart_needed=1
+    log "stopping server"
+    systemctl --user stop "$UNIT" || { log "failed to stop server"; exit 1; }
+    ;;
+  inactive|failed)
+    log "server was already stopped"
+    ;;
+  *)
+    log "server state '$state' is not safe for update; skipping"
+    exit 1
+    ;;
+esac
+
+if update_game; then
+  log "game update succeeded"
+else
+  log "game update failed; restoring previous server state"
+  exit 1
+fi

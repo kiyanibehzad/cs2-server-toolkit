@@ -1,184 +1,187 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-# ---------- Defaults & helpers ----------
-DEFAULT_USER="$(id -un 2>/dev/null || whoami || echo cs2server)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CS2_USER="$(id -un)"
+CS2_HOME="$HOME"
+CS2_DIR="$CS2_HOME/cs2-ds"
+UNIT_DIR="$CS2_HOME/.config/systemd/user"
+CONF="$CS2_DIR/.update.env"
+WITH_TIMER="${WITH_TIMER:-1}"
+WITH_SAFE_CHECK="${WITH_SAFE_CHECK:-1}"
 
-CS2_USER="${CS2_USER:-$DEFAULT_USER}"
-CS2_HOME="${CS2_HOME:-/home/$CS2_USER}"
-CS2_DIR="${CS2_DIR:-$CS2_HOME/cs2-ds}"
+if [[ "$(id -u)" -eq 0 ]]; then
+  echo "Run this installer as the dedicated, non-root game user." >&2
+  exit 1
+fi
+if [[ "$CS2_HOME" != "$(getent passwd "$CS2_USER" | cut -d: -f6)" ]]; then
+  echo "HOME does not match the current user's home directory." >&2
+  exit 1
+fi
+
+ask_required() {
+  local name="$1" prompt="$2" value="${!1:-}"
+  while [[ -z "$value" ]]; do
+    if [[ "$name" == RCON_PASS && -t 0 ]]; then
+      read -r -s -p "$prompt: " value; echo
+    else
+      read -r -p "$prompt: " value
+    fi
+  done
+  printf -v "$name" '%s' "$value"
+}
+
+# Console commands and cfg files cannot safely contain command separators or
+# control characters in these fields.
+check_cfg_value() {
+  local name="$1" value="$2"
+  if [[ "$value" == *[\;\"\\]* || "$value" =~ [[:cntrl:]] ]]; then
+    echo "Invalid character in $name (semicolon, quote, backslash, or control character)." >&2
+    exit 1
+  fi
+}
+
+if [[ -f "$CONF" ]]; then
+  # Reinstalling the toolkit must not replace the server's credentials.
+  # shellcheck disable=SC1090
+  . "$CONF"
+  echo "Using existing settings from $CONF"
+else
+  HOST_IP="${HOST_IP:-}"
+  PORT="${PORT:-27015}"
+  RCON_PASS="${RCON_PASS:-}"
+  SERVER_NAME="${SERVER_NAME:-CS2 Server}"
+  SERVER_PASS="${SERVER_PASS:-}"
+  GSLT="${GSLT:-}"
+
+  ask_required HOST_IP "Public server IP"
+  ask_required RCON_PASS "RCON password"
+  if [[ -t 0 ]]; then
+    read -r -p "Server port [$PORT]: " input
+    PORT="${input:-$PORT}"
+    read -r -p "Server name [$SERVER_NAME]: " input
+    SERVER_NAME="${input:-$SERVER_NAME}"
+    read -r -s -p "Join password (blank for none): " input; echo
+    SERVER_PASS="${input:-$SERVER_PASS}"
+    read -r -s -p "GSLT (blank for none): " input; echo
+    GSLT="${input:-$GSLT}"
+  fi
+fi
+
 HOST_IP="${HOST_IP:-}"
 PORT="${PORT:-27015}"
 RCON_PASS="${RCON_PASS:-}"
 SERVER_NAME="${SERVER_NAME:-CS2 Server}"
 SERVER_PASS="${SERVER_PASS:-}"
 GSLT="${GSLT:-}"
-WITH_TIMER="${WITH_TIMER:-1}"
-WITH_SAFE_CHECK="${WITH_SAFE_CHECK:-1}"
-
-ask_if_empty() {
-  local varname="$1" prompt="$2" def="${3:-}"
-  local val; eval "val=\${$varname:-}"
-  while [ -z "${val}" ]; do
-    if [ -n "$def" ]; then
-      read -rp "$prompt [$def]: " val
-      val="${val:-$def}"
-    else
-      read -rp "$prompt: " val
-    fi
-    eval "$varname=\$val"
-  done
+[[ -n "$HOST_IP" && -n "$RCON_PASS" ]] || { echo "IP and RCON password are required." >&2; exit 1; }
+[[ "$PORT" =~ ^[0-9]+$ ]] && (( PORT >= 1 && PORT <= 65535 )) || {
+  echo "PORT must be between 1 and 65535." >&2; exit 1;
 }
+for field in HOST_IP RCON_PASS SERVER_NAME SERVER_PASS GSLT; do
+  check_cfg_value "$field" "${!field}"
+done
 
-ensure_nonempty() {
-  local name="$1" value="$2"
-  if [ -z "$value" ]; then
-    echo "ERROR: $name is empty. Aborting." >&2
-    exit 1
-  fi
-}
-
-# ---------- Guard rails ----------
-if [ "$(id -u)" -eq 0 ]; then
-  echo "WARNING: Running as root is not recommended. Please run as the game user (e.g. cs2server)." >&2
-fi
-
-# ---------- Interactive prompts ----------
-ask_if_empty CS2_USER    "Enter Linux username for server" "$DEFAULT_USER"
-CS2_HOME="/home/$CS2_USER"
-CS2_DIR="$CS2_HOME/cs2-ds"
-
-ask_if_empty HOST_IP     "Enter public server IP"
-ask_if_empty PORT        "Enter server port" "27015"
-ask_if_empty RCON_PASS   "Enter RCON password"
-ask_if_empty SERVER_NAME "Enter visible server hostname" "CS2 Server"
-# join password can be empty, ask once (no loop)
-read -rp "Enter join password (sv_password, leave empty for none): " SERVER_PASS || true
-# GSLT can be empty, ask once
-read -rp "Enter Game Server Login Token (GSLT, leave empty if not using): " GSLT || true
-
-# sanity
-ensure_nonempty "CS2_USER" "$CS2_USER"
-ensure_nonempty "HOST_IP" "$HOST_IP"
-ensure_nonempty "PORT" "$PORT"
-ensure_nonempty "RCON_PASS" "$RCON_PASS"
-ensure_nonempty "SERVER_NAME" "$SERVER_NAME"
-
-echo
-echo "== Summary =="
-echo " Linux user : $CS2_USER"
-echo " Public IP  : $HOST_IP"
-echo " Port       : $PORT"
-echo " RCON pass  : (hidden)"
-echo " Server name: $SERVER_NAME"
-echo " Join pass  : $( [ -n "$SERVER_PASS" ] && echo set || echo none )"
-echo " GSLT       : $( [ -n "$GSLT" ] && echo set || echo none )"
-echo
-
-# ---------- Deps ----------
 if command -v apt-get >/dev/null 2>&1; then
   sudo apt-get update
-  sudo apt-get install -y curl ca-certificates lib32gcc-s1 git build-essential
+  sudo apt-get install -y curl ca-certificates lib32gcc-s1 git build-essential util-linux
 fi
 
-# ---------- SteamCMD ----------
 if [[ ! -x "$CS2_HOME/steamcmd/steamcmd.sh" ]]; then
   mkdir -p "$CS2_HOME/steamcmd"
-  (cd "$CS2_HOME/steamcmd" && curl -sSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz)
+  (cd "$CS2_HOME/steamcmd" && curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz)
 fi
 
-# ---------- mcrcon ----------
 if ! command -v mcrcon >/dev/null 2>&1; then
-  TMP="$(mktemp -d)"
-  git clone --depth 1 https://github.com/Tiiffi/mcrcon.git "$TMP/mcrcon"
-  make -C "$TMP/mcrcon"
-  sudo install -m 0755 "$TMP/mcrcon/mcrcon" /usr/local/bin/mcrcon
-  rm -rf "$TMP"
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  git clone --depth 1 https://github.com/Tiiffi/mcrcon.git "$tmp/mcrcon"
+  make -C "$tmp/mcrcon"
+  sudo install -m 0755 "$tmp/mcrcon/mcrcon" /usr/local/bin/mcrcon
+  rm -rf "$tmp"
+  trap - EXIT
 fi
 
-# ---------- Dirs ----------
-mkdir -p "$CS2_DIR" "$CS2_HOME/.config/systemd/user" "$CS2_DIR/backups"
+mkdir -p "$CS2_DIR" "$UNIT_DIR" "$CS2_DIR/backups"
+chmod 700 "$CS2_DIR/backups"
+if [[ ! -x "$CS2_DIR/game/bin/linuxsteamrt64/cs2" ]]; then
+  "$CS2_HOME/steamcmd/steamcmd.sh" +force_install_dir "$CS2_DIR" +login anonymous +app_update 730 validate +quit
+else
+  echo "Game already installed; use cs2-safe-update.sh for game updates."
+fi
 
-# ---------- Fetch/update CS2 ----------
-"$CS2_HOME/steamcmd/steamcmd.sh" +login anonymous +force_install_dir "$CS2_DIR" +app_update 730 validate +quit
+install -m 0755 "$REPO_DIR/scripts/cs2-admin.sh" "$CS2_DIR/cs2-admin.sh"
+install -m 0755 "$REPO_DIR/scripts/cs2-safe-update.sh" "$CS2_DIR/cs2-safe-update.sh"
+install -m 0755 "$REPO_DIR/scripts/update-cs2.sh" "$CS2_DIR/update-cs2.sh"
+install -m 0755 "$REPO_DIR/scripts/start.sh" "$CS2_DIR/start.sh"
+if [[ -e "$CS2_HOME/update-cs2.sh" || -L "$CS2_HOME/update-cs2.sh" ]]; then
+  if [[ "$(readlink "$CS2_HOME/update-cs2.sh" 2>/dev/null || true)" != "$CS2_DIR/update-cs2.sh" ]]; then
+    legacy="$CS2_HOME/update-cs2.sh.legacy-$(date +%Y%m%d%H%M%S)"
+    while [[ -e "$legacy" || -L "$legacy" ]]; do legacy="$legacy.$RANDOM"; done
+    mv "$CS2_HOME/update-cs2.sh" "$legacy"
+    echo "Previous manual updater saved at $legacy"
+  fi
+fi
+ln -sfn "$CS2_DIR/update-cs2.sh" "$CS2_HOME/update-cs2.sh"
 
-# ---------- Copy scripts ----------
-install -m 0755 scripts/cs2-admin.sh       "$CS2_DIR/cs2-admin.sh"       || true
-install -m 0755 scripts/cs2-safe-update.sh "$CS2_DIR/cs2-safe-update.sh"
-install -m 0755 scripts/start.sh           "$CS2_DIR/start.sh"
+if [[ ! -f "$CONF" ]]; then
+  umask 077
+  {
+    for field in HOST_IP PORT RCON_PASS SERVER_NAME SERVER_PASS GSLT; do
+      printf '%s=%q\n' "$field" "${!field}"
+    done
+  } > "$CONF"
+fi
+chmod 600 "$CONF"
 
-# ---------- Patch placeholders ----------
-sed -i "s|CS2USER|$CS2_USER|g" systemd/cs2-ds.env 2>/dev/null || true
-sed -i "s|CS2USER|$CS2_USER|g" "$CS2_DIR/cs2-safe-update.sh"  2>/dev/null || true
-sed -i "s|CS2USER|$CS2_USER|g" "$CS2_DIR/start.sh"            2>/dev/null || true
-sed -i "s|^IP=.*|IP=\"$HOST_IP\"|"   "$CS2_DIR/start.sh"
-sed -i "s|^PORT=.*|PORT=\"$PORT\"|"  "$CS2_DIR/start.sh"
-
-# ---------- .update.env ----------
-cat > "$CS2_DIR/.update.env" <<EOV
-HOST_IP="$HOST_IP"
-PORT="$PORT"
-RCON_PASS="$RCON_PASS"
-SERVER_NAME="$SERVER_NAME"
-SERVER_PASS="$SERVER_PASS"
-GSLT="$GSLT"
-EOV
-chmod 600 "$CS2_DIR/.update.env"
-
-# ---------- server cfg ----------
 CFG="$CS2_DIR/game/csgo/cfg/cs2server.cfg"
 mkdir -p "$(dirname "$CFG")"
-{
-  echo "hostname \"$SERVER_NAME\""
-  echo "rcon_password \"$RCON_PASS\""
-  echo "sv_password \"$SERVER_PASS\""
-  echo "sv_lan 0"
-  echo "bot_quota 0"
-  echo "mp_maxrounds 24"
-  echo "mp_halftime 1"
-  echo "mp_overtime_enable 1"
-  echo "mp_overtime_maxrounds 6"
-  echo "mp_freezetime 15"
-  echo "mp_buytime 20"
-  echo "mp_autokick 0"
-  if [ -n "$GSLT" ]; then
-    echo "sv_setsteamaccount \"$GSLT\""
-  fi
-} > "$CFG"
-
-# ---------- Systemd units ----------
-install -m 0644 systemd/cs2-ds.env     "$CS2_HOME/.config/systemd/user/cs2-ds.env"
-install -m 0644 systemd/cs2-ds.service "$CS2_HOME/.config/systemd/user/cs2-ds.service"
-
-if [[ "$WITH_TIMER" -eq 1 ]]; then
-  install -m 0644 systemd/cs2-update.service "$CS2_HOME/.config/systemd/user/cs2-update.service"
-  install -m 0644 systemd/cs2-update.timer   "$CS2_HOME/.config/systemd/user/cs2-update.timer"
-  sed -i "s|/home/CS2USER|/home/$CS2_USER|g" "$CS2_HOME/.config/systemd/user/cs2-update.service"
+if [[ ! -f "$CFG" ]]; then
+  umask 077
+  {
+    printf 'hostname "%s"\n' "$SERVER_NAME"
+    printf 'rcon_password "%s"\n' "$RCON_PASS"
+    printf 'sv_password "%s"\n' "$SERVER_PASS"
+    printf '%s\n' 'sv_lan 0' 'bot_quota 0' 'mp_maxrounds 24' 'mp_halftime 1' \
+      'mp_overtime_enable 1' 'mp_overtime_maxrounds 6' 'mp_freezetime 15' \
+      'mp_buytime 20' 'mp_autokick 0'
+    [[ -z "$GSLT" ]] || printf 'sv_setsteamaccount "%s"\n' "$GSLT"
+  } > "$CFG"
 fi
-if [[ "$WITH_SAFE_CHECK" -eq 1 ]]; then
-  install -m 0644 systemd/cs2-checkupdate.service "$CS2_HOME/.config/systemd/user/cs2-checkupdate.service"
-  install -m 0644 systemd/cs2-checkupdate.timer   "$CS2_HOME/.config/systemd/user/cs2-checkupdate.timer"
-  sed -i "s|/home/CS2USER|/home/$CS2_USER|g"       "$CS2_HOME/.config/systemd/user/cs2-checkupdate.service"
-fi
+chmod 600 "$CFG"
 
-# ---------- Enable services ----------
-loginctl enable-linger "$CS2_USER" 2>/dev/null || sudo loginctl enable-linger "$CS2_USER" || true
+umask 077
+cat > "$UNIT_DIR/cs2-ds.env" <<EOF
+LD_LIBRARY_PATH="$CS2_DIR/game/bin/linuxsteamrt64:$CS2_DIR/game/csgo/bin/linuxsteamrt64:$CS2_HOME/steamcmd/linux64"
+USER="$CS2_USER"
+HOME="$CS2_HOME"
+LANG=C.UTF-8
+LC_ALL=C.UTF-8
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin:/usr/games
+SDL_AUDIODRIVER=dummy
+DISPLAY=
+EOF
+chmod 600 "$UNIT_DIR/cs2-ds.env"
+install -m 0644 "$REPO_DIR/systemd/cs2-ds.service" "$UNIT_DIR/cs2-ds.service"
+install -m 0644 "$REPO_DIR/systemd/cs2-update.service" "$UNIT_DIR/cs2-update.service"
+install -m 0644 "$REPO_DIR/systemd/cs2-update.timer" "$UNIT_DIR/cs2-update.timer"
+install -m 0644 "$REPO_DIR/systemd/cs2-checkupdate.service" "$UNIT_DIR/cs2-checkupdate.service"
+install -m 0644 "$REPO_DIR/systemd/cs2-checkupdate.timer" "$UNIT_DIR/cs2-checkupdate.timer"
+
+sudo loginctl enable-linger "$CS2_USER"
 systemctl --user daemon-reload
-systemctl --user enable --now cs2-ds
-[[ "$WITH_TIMER" -eq 1 ]]      && systemctl --user enable --now cs2-update.timer      || true
-[[ "$WITH_SAFE_CHECK" -eq 1 ]] && systemctl --user enable --now cs2-checkupdate.timer || true
+systemctl --user enable --now cs2-ds.service
+if [[ "$WITH_TIMER" == 1 ]]; then
+  systemctl --user enable --now cs2-update.timer
+else
+  systemctl --user disable --now cs2-update.timer
+fi
+if [[ "$WITH_SAFE_CHECK" == 1 ]]; then
+  systemctl --user enable --now cs2-checkupdate.timer
+else
+  systemctl --user disable --now cs2-checkupdate.timer
+fi
+ln -sfn "$CS2_DIR/cs2-admin.sh" "$CS2_HOME/admin-cs2"
 
-# ---------- Symlink ----------
-ln -sf "$CS2_DIR/cs2-admin.sh" "$CS2_HOME/admin-cs2" || true
-
-echo
-echo "Install complete!"
-echo " Server user : $CS2_USER"
-echo " Host IP     : $HOST_IP"
-echo " Port        : $PORT"
-echo " RCON pass   : (hidden)"
-echo " Server name : $SERVER_NAME"
-echo " Join pass   : $( [ -n "$SERVER_PASS" ] && echo set || echo none )"
-echo " GSLT        : $( [ -n "$GSLT" ] && echo set || echo none )"
-echo
-echo "Run admin menu with: $CS2_HOME/admin-cs2"
+echo "Installation complete. Server data and existing settings were preserved."
+echo "Admin menu: $CS2_HOME/admin-cs2"

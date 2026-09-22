@@ -1,5 +1,5 @@
 [Unit]
-Description=Run CS2 update daily at 06:00
+Description=Check for a safe CS2 update daily at 06:00
 
 [Timer]
 OnCalendar=*-*-* 06:00:00
