@@ -50,7 +50,7 @@ export HOST_IP=127.0.0.1 PORT=27015 RCON_PASS='test-pass' SERVER_NAME='Test Serv
 export SERVER_PASS='join-pass' GSLT='test-token'
 
 printf 'old manual updater\n' > "$HOME/update-cs2.sh"
-"$REPO/install.sh" > "$TEST_ROOT/output"
+"$REPO/install.sh" < /dev/null > "$TEST_ROOT/output"
 grep -Fq "+force_install_dir $HOME/cs2-ds" "$TEST_ROOT/steamcmd-calls"
 [[ -L "$HOME/update-cs2.sh" ]]
 grep -Fq 'old manual updater' "$HOME"/update-cs2.sh.legacy-*
@@ -61,7 +61,7 @@ cp "$HOME/cs2-ds/.update.env" "$TEST_ROOT/env-before"
 cp "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg" "$TEST_ROOT/cfg-before"
 
 export RCON_PASS='different-pass' SERVER_NAME='Changed Name'
-"$REPO/install.sh" > "$TEST_ROOT/output"
+"$REPO/install.sh" < /dev/null > "$TEST_ROOT/output"
 cmp "$TEST_ROOT/env-before" "$HOME/cs2-ds/.update.env"
 cmp "$TEST_ROOT/cfg-before" "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg"
 [[ "$(wc -l < "$TEST_ROOT/steamcmd-calls")" -eq 1 ]]
