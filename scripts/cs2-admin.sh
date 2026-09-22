@@ -444,6 +444,11 @@ apply_mode_and_reload() {
   # Ensure server is up before applying cvars
   ensure_server_running || { err "Server not ready; cannot apply mode."; return 1; }
 
+  if [[ -n "$map" && "$STRICT_CHECK" -eq 1 ]] && ! has_map "$map"; then
+    err "Map '$map' is not installed; mode was not changed."
+    return 1
+  fi
+
   case "$mode" in
     comp_mr12)
       set_mode_competitive_MR12
@@ -478,8 +483,8 @@ apply_mode_and_reload() {
   # Map reload / change to fully apply mode
   if [[ -n "$map" ]]; then
     if ! change_map "$map"; then
-      warn "Failed to change map to '$map'. Falling back to mp_restartgame 1."
-      rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
+      err "Could not switch to '$map'; check the server before trying again."
+      return 1
     fi
   else
     cur="$(current_map)"
@@ -505,6 +510,46 @@ apply_mode_and_reload() {
 
   say "Game mode switched to: $mode"
   ok "Mode applied: $mode"
+}
+
+armsrace_map() {
+  local map="$1"
+  case "$map" in
+    ar_pool_day|ar_shoots|ar_baggage) ;;
+    *) err "Unknown Arms Race map: $map"; return 1 ;;
+  esac
+  if ! has_map "$map"; then
+    err "Map '$map' is not installed; mode was not changed."
+    return 1
+  fi
+  apply_mode_and_reload armsrace "$map"
+}
+
+armsrace_map_menu() {
+  local sel map label
+  echo; echo -e "${bold}${CLR_MAPS}[Arms Race Maps (map + preset)]${reset}"
+  for sel in 1 2 3; do
+    case "$sel" in
+      1) map=ar_pool_day; label="Pool Day" ;;
+      2) map=ar_shoots; label="Shoots" ;;
+      3) map=ar_baggage; label="Baggage" ;;
+    esac
+    if has_map "$map"; then
+      echo -e "  ${CLR_MAPS}${sel})${reset} ${label} (${map})"
+    else
+      echo -e "  ${CLR_MAPS}${sel})${reset} ${label} (${map}) [not installed]"
+    fi
+  done
+  echo -e "  ${CLR_MAPS}0)${reset} Back"
+  echo
+  read -rp "Select: " sel
+  case "$sel" in
+    1) armsrace_map ar_pool_day ;;
+    2) armsrace_map ar_shoots ;;
+    3) armsrace_map ar_baggage ;;
+    0|"") return 0 ;;
+    *) err "Invalid selection"; return 1 ;;
+  esac
 }
 
 # Menu
@@ -1007,6 +1052,7 @@ banner() {
   echo -e "  ${CLR_MAPS}5)${reset} de_overpass  ${CLR_MAPS}6)${reset} de_vertigo   ${CLR_MAPS}7)${reset} de_ancient  ${CLR_MAPS}8)${reset} de_anubis"
   echo -e "  ${CLR_MAPS}9)${reset} de_cache     ${CLR_MAPS}0)${reset} de_train"
   echo -e "  ${CLR_MAPS}p)${reset} List installed maps"
+  echo -e "  ${CLR_MAPS}A)${reset} Arms Race maps (Pool Day / Shoots / Baggage + preset)"
   echo
   echo -e "${bold}${CLR_BOTS}[Bots]${reset}"
   echo -e "  ${CLR_BOTS}b)${reset} Add bot      ${CLR_BOTS}n)${reset} Add bot (CT)   ${CLR_BOTS}m)${reset} Add bot (T)"
@@ -1051,6 +1097,7 @@ ui_loop() {
     case "$key" in
       1|2|3|4|5|6|7|8|9|0) map="$(map_for_key "$key")"; [[ -n "$map" ]] && change_map "$map" || warn "Unknown key" ;;
       p) list_installed_maps || true ;;
+      A) armsrace_map_menu || true ;;
 
       # Bots
       b) add_bot auto || true ;;
@@ -1108,6 +1155,7 @@ case "$cmd" in
   backup) backup_cfg ;;
   list-maps) list_installed_maps ;;
   change-map) change_map "${1:-de_dust2}" ;;
+  armsrace-map) armsrace_map "${1:-}" ;;
   rcon) rcon "$@" ;;
   list-banned) list_banned ;;
   unban-select) unban_select ;;

@@ -76,6 +76,14 @@ Looking for a reliable VPS or dedicated server for CS2?
   ~/admin-cs2
   ```
 
+  Press `A` to choose an Arms Race map: Pool Day, Shoots, or Baggage.
+  This applies the Arms Race preset and changes the map in one action. The menu
+  marks maps that are not installed; choosing one leaves the current mode alone.
+  Changing a live map interrupts the current match.
+
+  For scripts, use `~/cs2-ds/cs2-admin.sh armsrace-map ar_pool_day` (or
+  `ar_shoots` / `ar_baggage`).
+
 - **Check logs**
   ```bash
   journalctl --user -u cs2-ds -f
