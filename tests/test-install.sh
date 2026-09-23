@@ -26,6 +26,10 @@ cat > "$TEST_ROOT/bin/mcrcon" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
+cat > "$TEST_ROOT/bin/flock" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
 cat > "$TEST_ROOT/bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$TEST_ROOT/systemctl-calls"
@@ -56,6 +60,9 @@ grep -Fq "+force_install_dir $HOME/cs2-ds" "$TEST_ROOT/steamcmd-calls"
 grep -Fq 'old manual updater' "$HOME"/update-cs2.sh.legacy-*
 [[ "$(ls -l "$HOME/cs2-ds/.update.env" | cut -c1-10)" == '-rw-------' ]]
 [[ "$(ls -l "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg" | cut -c1-10)" == '-rw-------' ]]
+[[ -x "$HOME/cs2-ds/cs2-rcon.py" && -x "$HOME/cs2-ds/cs2-config.sh" && -x "$HOME/cs2-ds/cs2-buildid.py" ]]
+! grep -Fq 'sv_setsteamaccount' "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg"
+grep -Fxq 'exec cs2_toolkit.cfg' "$HOME/cs2-ds/game/csgo/cfg/gamemode_competitive_server.cfg"
 grep -Fq 'ExecStart=%h/cs2-ds/cs2-safe-update.sh --check' "$HOME/.config/systemd/user/cs2-update.service"
 cp "$HOME/cs2-ds/.update.env" "$TEST_ROOT/env-before"
 cp "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg" "$TEST_ROOT/cfg-before"
@@ -68,6 +75,7 @@ cmp "$TEST_ROOT/cfg-before" "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg"
 echo 'PASS initial_install_and_safe_reinstall'
 
 export CS2_HOME="$HOME" CS2_DIR="$HOME/cs2-ds"
+export RCON_CLIENT="$TEST_ROOT/bin/mcrcon"
 printf '1\nnew-pass\n0\n' | "$HOME/cs2-ds/cs2-admin.sh" join-pass-menu > "$TEST_ROOT/admin-output"
 grep -Fq 'SERVER_PASS=new-pass' "$HOME/cs2-ds/.update.env"
 grep -Fq 'sv_password "new-pass"' "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg"
@@ -76,3 +84,14 @@ if grep -Fq 'new-pass' "$TEST_ROOT/admin-output"; then
   exit 1
 fi
 echo 'PASS join_password_persistence'
+
+cat > "$HOME/cs2-ds/game/bin/linuxsteamrt64/cs2" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$TEST_ROOT/launch-args"
+EOF
+chmod +x "$HOME/cs2-ds/game/bin/linuxsteamrt64/cs2"
+"$HOME/cs2-ds/start.sh"
+grep -Fxq '+sv_setsteamaccount' "$TEST_ROOT/launch-args"
+grep -Fxq 'test-token' "$TEST_ROOT/launch-args"
+grep -Fxq '+game_type' "$TEST_ROOT/launch-args"
+echo 'PASS launcher_reads_gslt_and_mode'

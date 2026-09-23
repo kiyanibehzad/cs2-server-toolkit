@@ -10,6 +10,7 @@ CS2_USER="${CS2_USER:-$(id -un)}"
 CS2_HOME="${CS2_HOME:-$HOME}"
 CS2_DIR="${CS2_DIR:-$CS2_HOME/cs2-ds}"
 CONF="$CS2_DIR/.update.env"
+# shellcheck disable=SC1090
 [[ -f "$CONF" ]] && . "$CONF"
 
 # RCON / networking (fallbacks if not set in .update.env)
@@ -78,7 +79,23 @@ pause() { read -rp "$(echo -e "${bold}${blue}Press Enter to continue...${reset} 
 
 # ---------- HELPERS ----------
 require_cmd() { command -v "$1" >/dev/null 2>&1 || { err "'$1' is not installed"; return 1; }; }
-rcon() { require_cmd mcrcon || return 1; [[ -n "$RCON_PASS" ]] || { err "RCON password is missing"; return 1; }; mcrcon -H "$RCON_HOST" -P "$RCON_PORT" -p "$RCON_PASS" "$@"; }
+RCON_CLIENT="${RCON_CLIENT:-$CS2_DIR/cs2-rcon.py}"
+CONFIG_TOOL="${CONFIG_TOOL:-$CS2_DIR/cs2-config.sh}"
+rcon() {
+  local output result=0
+  [[ -n "$RCON_PASS" ]] || { err "RCON password is missing"; return 1; }
+  if [[ -x "$RCON_CLIENT" ]]; then
+    output="$(RCON_PASS="$RCON_PASS" "$RCON_CLIENT" -H "$RCON_HOST" -P "$RCON_PORT" "$@")" || result=$?
+  else
+    require_cmd mcrcon || return 1
+    output="$(mcrcon -H "$RCON_HOST" -P "$RCON_PORT" -p "$RCON_PASS" "$@")" || result=$?
+  fi
+  [[ -z "$output" ]] || printf '%s\n' "$output"
+  if printf '%s\n' "$output" | grep -Eqi "Unknown (command|variable)|couldn't exec|failed to execute"; then
+    return 1
+  fi
+  return "$result"
+}
 
 has_map() {
   local map="$1"
@@ -143,7 +160,7 @@ status()      { rcon status; }
 say()         { rcon "say $*"; }
 add_bot()     { case "${1:-auto}" in ct) rcon "bot_add_ct";; t) rcon "bot_add_t";; *) rcon "bot_add";; esac; }
 remove_bots() { rcon "bot_kick"; }
-bot_quota()   { rcon "bot_quota $1"; rcon "bot_quota_mode fill"; ok "bot_quota=$1 (fill)"; }
+bot_quota()   { rcon "bot_quota $1" && rcon "bot_quota_mode fill" && ok "bot_quota=$1 (fill)"; }
 kick_all()    { rcon "kickall"; }
 
 # Bot difficulty: 0 easy, 1 normal, 2 hard, 3 expert
@@ -220,13 +237,11 @@ update_server() {
 unit_exists_user() { ensure_user_systemd_env; systemctl --user list-unit-files --type=service | awk '{print $1}' | sed 's/\.service$//' | grep -Fxq "$1"; }
 user_unit_is_active() {
   ensure_user_systemd_env
-  systemctl --user is-active --quiet "$1" && return 0
-  local sub; sub="$(systemctl --user show "$1" -p SubState --value 2>/dev/null || echo inactive)"
-  [[ "$sub" == "running" || "$sub" == "start-pre" || "$sub" == "start" || "$sub" == "auto-restart" ]]
+  systemctl --user is-active --quiet "$1"
 }
 wait_active_user_unit() {
-  local u="$1" tries=20
-  while ((tries-- > 0)); do user_unit_is_active "$u" && return 0; sleep 0.5; done
+  local u="$1" tries=60
+  while ((tries-- > 0)); do user_unit_is_active "$u" && return 0; sleep 1; done
   return 1
 }
 restart_service() {
@@ -236,14 +251,14 @@ restart_service() {
     if user_unit_is_active "$SERVICE_NAME"; then
       info "Restarting service: ${bold}$SERVICE_NAME${reset}"
       if systemctl --user restart "$SERVICE_NAME"; then
-        if wait_active_user_unit "$SERVICE_NAME"; then ok "Service restarted and active."
-        else warn "Restart issued, but unit not reporting active yet."; fi
+        if wait_active_user_unit "$SERVICE_NAME" && wait_rcon_ready; then ok "Service restarted and RCON ready."
+        else err "Restart issued, but server is not ready."; return 1; fi
       else err "Restart failed. Recent logs:"; journalctl --user -u "$SERVICE_NAME" -n 80 --no-pager || true; return 1; fi
     else
       warn "Service '$SERVICE_NAME' not active. Trying to start..."
       if systemctl --user start "$SERVICE_NAME"; then
-        if wait_active_user_unit "$SERVICE_NAME"; then ok "Service started and active."
-        else warn "Start issued, but unit not reporting active yet."; fi
+        if wait_active_user_unit "$SERVICE_NAME" && wait_rcon_ready; then ok "Service started and RCON ready."
+        else err "Start issued, but server is not ready."; return 1; fi
       else err "Start failed. Recent logs:"; journalctl --user -u "$SERVICE_NAME" -n 80 --no-pager || true; return 1; fi
     fi
   else
@@ -264,10 +279,10 @@ live_logs() {
 # ---------- SERVER STATUS HELPERS ----------
 # Wait until RCON responds (server truly up)
 wait_rcon_ready() {
-  local tries=20
+  local tries=60
   while ((tries-- > 0)); do
     if rcon status >/dev/null 2>&1; then return 0; fi
-    sleep 0.5
+    sleep 1
   done
   return 1
 }
@@ -347,168 +362,119 @@ unban_select() {
 
 # ---------- MODES ----------
 
-# Base setter for game_type / game_mode
+# Valve selects the mode-specific cfg during map loading from these four
+# values. Set them before changelevel; then verify and apply toolkit overrides.
 set_mode_core() {
-  rcon "game_type $1"
-  rcon "game_mode $2"
+  rcon "sv_game_mode_flags 0" >/dev/null || return 1
+  rcon "sv_skirmish_id $3" >/dev/null || return 1
+  rcon "game_type $1" >/dev/null || return 1
+  rcon "game_mode $2" >/dev/null || return 1
+}
+
+convar_value() {
+  local name="$1" output
+  output="$(rcon "$name")" || return 1
+  printf '%s\n' "$output" | sed -nE "s/^[[:space:]]*${name}[[:space:]]*=[[:space:]]*(.*)$/\1/p" | head -n 1
+}
+
+verify_convar() {
+  local name="$1" expected="$2" actual
+  actual="$(convar_value "$name")" || return 1
+  case "$actual" in
+    true) actual=1 ;; false) actual=0 ;;
+  esac
+  if [[ "$actual" != "$expected" ]]; then
+    err "$name expected $expected, got ${actual:-no response}"
+    return 1
+  fi
 }
 
 # Common settings: no bots, no autobalance, no limits
 apply_common_team_settings() {
-  rcon "mp_autoteambalance 0"
-  rcon "mp_limitteams 0"
+  rcon "mp_autoteambalance 0" >/dev/null || return 1
+  rcon "mp_limitteams 0" >/dev/null || return 1
 
   # Disable bots for all presets
-  rcon "bot_quota 0"
-  rcon "bot_join_after_player 0"
-  rcon "bot_quota_mode normal"
+  rcon "bot_quota 0" >/dev/null || return 1
+  rcon "bot_join_after_player 0" >/dev/null || return 1
+  rcon "bot_quota_mode normal" >/dev/null || return 1
 
   # Remove any bots that are already in the server
-  rcon "bot_kick"
+  rcon "bot_kick" >/dev/null || return 1
 }
 
-# Competitive (MR12, unlimited players)
-set_mode_competitive_MR12() {
-  set_mode_core 0 1
-  rcon "sv_skirmish_id 0"
-  rcon "exec gamemode_competitive.cfg" || true
-  rcon "mp_autokick 0"
-  rcon "mp_overtime_enable 1"
-  rcon "mp_overtime_maxrounds 6"
-  rcon "mp_overtime_startmoney 10000"
-  rcon "mp_overtime_halftime_pausetimer 1"
-  rcon "mp_match_can_clinch 1"
-  apply_common_team_settings
+# Apply a complete identity before loading the map. Values are derived from
+# Valve's CS2 game mode table; Retakes is a Casual skirmish (ID 12).
+mode_identity() {
+  local mode="$1" type game skirmish=0
+  case "$mode" in
+    comp_mr12) type=0; game=1 ;;
+    casual) type=0; game=0 ;;
+    wingman) type=0; game=2 ;;
+    deathmatch) type=1; game=2 ;;
+    retakes) type=0; game=0; skirmish=12 ;;
+    armsrace) type=1; game=0 ;;
+    *) err "Unknown mode: $mode"; return 1 ;;
+  esac
+  set_mode_core "$type" "$game" "$skirmish" || return 1
+  MODE_TYPE="$type" MODE_GAME="$game" MODE_SKIRMISH="$skirmish"
 }
 
-# Casual (no bots, unlimited players)
-set_mode_casual() {
-  set_mode_core 0 0
-  rcon "sv_skirmish_id 0"
-  rcon "exec gamemode_casual.cfg" || true
-  rcon "mp_autokick 0"
-  apply_common_team_settings
-}
-
-# Wingman but full map / unlimited players (NOT 2v2)
-set_mode_wingman() {
-  set_mode_core 0 2
-  rcon "sv_skirmish_id 0"
-  rcon "exec gamemode_competitive.cfg" || true
-  apply_common_team_settings
-}
-
-# Deathmatch
-set_mode_deathmatch() {
-  set_mode_core 1 2
-  rcon "sv_skirmish_id 0"
-  rcon "exec gamemode_deathmatch.cfg" || true
-  apply_common_team_settings
-}
-
-# Retakes (real one, with correct config)
-set_mode_retakes() {
-  set_mode_core 0 0
-  rcon "sv_skirmish_id 12"
-  rcon "exec gamemode_retakecasual.cfg" || true
-  apply_common_team_settings
-}
-
-# Arms Race
-set_mode_armsrace() {
-  set_mode_core 1 0
-  rcon "sv_skirmish_id 0"
-  rcon "exec gamemode_armsrace.cfg" || true
-  apply_common_team_settings
-}
-
-# Reload current map after mode switch
-reload_current_map_simple() {
-  local cur
-  cur="$(current_map)"
-  if [[ -z "$cur" ]]; then
-    warn "Could not detect current map; using de_dust2"
-    rcon "map de_dust2"
-    return
+apply_mode_rules() {
+  local mode="$1" command
+  local -a commands=(
+    'mp_autokick 0'
+    'mp_shoot_dropped_grenades 1'
+  )
+  if [[ "$mode" == comp_mr12 ]]; then
+    commands+=(
+      'mp_maxrounds 24' 'mp_halftime 1'
+      'mp_overtime_enable 1' 'mp_overtime_maxrounds 6'
+      'mp_overtime_startmoney 10000'
+      'mp_overtime_halftime_pausetimer 1'
+      'mp_match_can_clinch 1'
+    )
+  elif [[ "$mode" != wingman ]]; then
+    commands+=('mp_overtime_enable 0')
   fi
-  info "Reloading map: $cur"
-  rcon "map $cur"
+  if [[ "$mode" == armsrace ]]; then
+    commands+=(
+      'mp_teammates_are_enemies 0'
+      'mp_respawn_on_death_t 1' 'mp_respawn_on_death_ct 1'
+    )
+  elif [[ "$mode" != deathmatch ]]; then
+    commands+=('mp_teammates_are_enemies 0' 'mp_respawn_on_death_t 0' 'mp_respawn_on_death_ct 0')
+  fi
+  for command in "${commands[@]}"; do
+    rcon "$command" >/dev/null || { err "Failed: $command"; return 1; }
+  done
+  apply_common_team_settings || return 1
+  rcon 'exec cs2_toolkit.cfg' >/dev/null || return 1
+  verify_convar game_type "$MODE_TYPE" || return 1
+  verify_convar game_mode "$MODE_GAME" || return 1
+  verify_convar sv_skirmish_id "$MODE_SKIRMISH" || return 1
+  verify_convar sv_game_mode_flags 0 || return 1
+  if [[ "$mode" == comp_mr12 ]]; then
+    verify_convar mp_overtime_enable 1 || return 1
+    verify_convar mp_overtime_maxrounds 6 || return 1
+  fi
 }
 
-# Apply selected mode and reload the current map
 apply_mode_and_reload() {
-  # $1 = mode key (comp_mr12 / casual / wingman / deathmatch / retakes / armsrace)
-  # $2 = map name (optional; blank = reload current)
   local mode="$1" map="${2:-}" cur
-
-  # Ensure server is up before applying cvars
   ensure_server_running || { err "Server not ready; cannot apply mode."; return 1; }
-
   if [[ -n "$map" && "$STRICT_CHECK" -eq 1 ]] && ! has_map "$map"; then
     err "Map '$map' is not installed; mode was not changed."
     return 1
   fi
-
-  case "$mode" in
-    comp_mr12)
-      set_mode_competitive_MR12
-      rcon "exec gamemode_competitive_server.cfg" || true
-      ;;
-    casual)
-      set_mode_casual
-      rcon "exec gamemode_casual_server.cfg" || true
-      ;;
-    wingman)
-      set_mode_wingman
-      rcon "exec gamemode_wingman_server.cfg" || true
-      ;;
-    deathmatch)
-      set_mode_deathmatch
-      rcon "exec gamemode_deathmatch_server.cfg" || true
-      ;;
-    retakes)
-      set_mode_retakes
-      rcon "exec gamemode_retakecasual_server.cfg" || true
-      ;;
-    armsrace)
-      set_mode_armsrace
-      rcon "exec gamemode_armsrace_server.cfg" || true
-      ;;
-    *)
-      err "Unknown mode: $mode"
-      return 1
-      ;;
-  esac
-
-  # Map reload / change to fully apply mode
-  if [[ -n "$map" ]]; then
-    if ! change_map "$map"; then
-      err "Could not switch to '$map'; check the server before trying again."
-      return 1
-    fi
-  else
-    cur="$(current_map)"
-    if [[ -n "$cur" ]]; then
-      info "Reloading current map to apply mode fully: $cur"
-      if ! change_map "$cur"; then
-        warn "Failed to reload current map. Falling back to mp_restartgame 1."
-        rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
-      fi
-    else
-      warn "Could not detect current map; running mp_restartgame 1."
-      rcon "mp_restartgame 1" || warn "Restart command failed (server down?)."
-    fi
-  fi
-
-  # Final pass AFTER map reload: enforce team/bot settings and kick bots
-  rcon "mp_autoteambalance 0"
-  rcon "mp_limitteams 0"
-  rcon "bot_quota 0"
-  rcon "bot_join_after_player 0"
-  rcon "bot_quota_mode normal"
-  rcon "bot_kick"
-
-  say "Game mode switched to: $mode"
+  [[ -x "$CONFIG_TOOL" ]] || { err "Toolkit config helper is missing."; return 1; }
+  "$CONFIG_TOOL" sync || { err "Could not prepare persistent settings."; return 1; }
+  mode_identity "$mode" || return 1
+  cur="${map:-$(current_map)}"
+  [[ -n "$cur" ]] || { err "Current map is unknown; mode was not applied."; return 1; }
+  change_map "$cur" || return 1
+  apply_mode_rules "$mode" || { err "Mode changed but a rule failed; inspect server state."; return 1; }
+  say "Game mode switched to: $mode" || warn "Mode changed; announcement failed."
   ok "Mode applied: $mode"
 }
 
@@ -632,7 +598,7 @@ create_custom_mode() {
   case "$base" in
     1) base_exec="exec gamemode_competitive.cfg" ;;
     2) base_exec="exec gamemode_casual.cfg" ;;
-    3) base_exec="exec gamemode_competitive.cfg" ;; # wingman uses competitive preset
+    3) base_exec="exec gamemode_competitive2v2.cfg" ;;
     4) base_exec="exec gamemode_deathmatch.cfg" ;;
     5|*) base_exec="" ;;
   esac
@@ -664,8 +630,6 @@ create_custom_mode() {
   startmoney="$(ask_int_default "mp_startmoney" "800")"
   warmup_time="$(ask_int_default "mp_warmuptime" "20")"
 
-  read -rp "mp_items_prohibited (comma list, blank=none): " items_block
-
   {
     echo "// Custom mode: $slug"
     [[ -n "$base_exec" ]] && echo "$base_exec"
@@ -682,7 +646,6 @@ create_custom_mode() {
     echo "mp_friendlyfire $ff"
     echo "mp_startmoney $startmoney"
     echo "mp_warmuptime $warmup_time"
-    [[ -n "$items_block" ]] && echo "mp_items_prohibited \"$items_block\""
     echo "echo \"[custom_modes] Loaded ${slug}.cfg\""
   } > "$out"
 
@@ -690,8 +653,13 @@ create_custom_mode() {
 
   read -rp "Apply now? (y/N): " yn
   if [[ "$yn" =~ ^[Yy]$ ]]; then
-    rcon "exec custom_modes/${slug}.cfg"
-    rcon "mp_restartgame 1"
+    local current
+    current="$(current_map)"
+    [[ -n "$current" ]] || { err "Current map is unknown; mode file was saved but not applied."; return 1; }
+    rcon "exec custom_modes/${slug}.cfg" || return 1
+    change_map "$current" || return 1
+    rcon "exec custom_modes/${slug}.cfg" || return 1
+    rcon "mp_restartgame 1" || return 1
     ok "Custom mode applied."
   fi
 }
@@ -711,7 +679,7 @@ edit_mode_server_cfg_menu() {
     echo -e "${bold}${CLR_MODES}[Edit *_server.cfg per mode]${reset}"
     echo "  1) competitive   -> gamemode_competitive_server.cfg"
     echo "  2) casual        -> gamemode_casual_server.cfg"
-    echo "  3) wingman       -> gamemode_wingman_server.cfg"
+    echo "  3) wingman       -> gamemode_competitive2v2_server.cfg"
     echo "  4) deathmatch    -> gamemode_deathmatch_server.cfg"
     echo "  5) retakes       -> gamemode_retakecasual_server.cfg"
     echo "  6) arms race     -> gamemode_armsrace_server.cfg"
@@ -723,7 +691,7 @@ edit_mode_server_cfg_menu() {
     case "$sel" in
       1) target="$cfgdir/gamemode_competitive_server.cfg" ;;
       2) target="$cfgdir/gamemode_casual_server.cfg" ;;
-      3) target="$cfgdir/gamemode_wingman_server.cfg" ;;
+      3) target="$cfgdir/gamemode_competitive2v2_server.cfg" ;;
       4) target="$cfgdir/gamemode_deathmatch_server.cfg" ;;
       5) target="$cfgdir/gamemode_retakecasual_server.cfg" ;;
       6) target="$cfgdir/gamemode_armsrace_server.cfg" ;;
@@ -746,13 +714,35 @@ edit_mode_server_cfg_menu() {
 }
 
 # ---------- WEAPONS BLOCK ----------
-weapons_block_show() { info "Current prohibited items:"; rcon "mp_items_prohibited"; }
-weapons_block_set()  { local list="$1"; rcon "mp_items_prohibited \"$list\""; ok "Applied: mp_items_prohibited=\"$list\""; }
-weapons_block_clear(){ rcon 'mp_items_prohibited ""'; ok "Cleared: no prohibited items."; }
+weapons_block_show() {
+  [[ -x "$CONFIG_TOOL" ]] || { err "Toolkit config helper is missing."; return 1; }
+  info "Saved list: $("$CONFIG_TOOL" show)"
+  info "Live value:"
+  rcon "mp_items_prohibited"
+}
+weapons_block_set() {
+  local list ids live
+  [[ -x "$CONFIG_TOOL" ]] || { err "Toolkit config helper is missing."; return 1; }
+  list="$("$CONFIG_TOOL" set "$1")" || return 1
+  ids="$("$CONFIG_TOOL" ids)" || return 1
+  if ! rcon "mp_items_prohibited \"$ids\""; then
+    err "Saved the list, but the live server rejected it. Check RCON."
+    return 1
+  fi
+  live="$(convar_value mp_items_prohibited)" || return 1
+  live="${live//\"/}"
+  live="${live// /}"
+  [[ "$live" == "$ids" ]] || {
+    err "Saved restriction, but live value differs (expected ${ids:-empty}, got ${live:-empty})."
+    return 1
+  }
+  ok "Saved and applied: ${list:-none} (indices: ${ids:-none})"
+}
+weapons_block_clear() { weapons_block_set ''; }
 weapons_menu() {
   echo; echo -e "${bold}${CLR_WEAPONS}[Weapons Block]${reset}"
   echo "  1) Show current blocked list"
-  echo "  2) Set new blocked list (comma-separated)"
+  echo "  2) Set saved blocked list (names or aliases)"
   echo "  3) Clear (allow all)"
   echo "  4) Quick examples"
   echo "  0) Back"; echo
@@ -761,7 +751,7 @@ weapons_menu() {
     1) weapons_block_show ;;
     2) read -rp "Enter items (e.g. weapon_awp,weapon_ssg08; blank=cancel): " L; [[ -z "$L" ]] && info "Cancelled." || weapons_block_set "$L" ;;
     3) weapons_block_clear ;;
-    4) echo "Examples:"; echo "  - Ban AWP: weapon_awp"; echo "  - Ban AWP + Scout: weapon_awp,weapon_ssg08"; echo "  - Ban SG + AUG: weapon_sg556,weapon_aug"; echo "  - Ban Negev + XM1014: weapon_negev,weapon_xm1014"; echo ;;
+    4) echo "Examples:"; echo "  - AWP, Negev, M249, G3SG1, SCAR-20"; echo "  - weapon_awp,weapon_ssg08"; echo ;;
     0|"") return 0 ;;
     *) err "Invalid";;
   esac
@@ -769,9 +759,37 @@ weapons_menu() {
 
 # ---------- FUN: CHICKENS / GRAVITY / SPEED ----------
 
-# Get current sv_cheats value (0/1)
+# Get current sv_cheats value (0/1); an unreadable value is an error.
 cheats_current() {
-  rcon "sv_cheats" 2>/dev/null | grep -Eo '[0-9]+' | head -1 || echo 0
+  local value
+  value="$(convar_value sv_cheats)" || return 1
+  case "$value" in
+    0|false) echo 0 ;; 1|true) echo 1 ;;
+    *) err "Cannot read sv_cheats: ${value:-empty}"; return 1 ;;
+  esac
+}
+
+with_temporary_cheats() (
+  local previous
+  previous="$(cheats_current)" || exit 1
+  restore_cheats() {
+    trap - EXIT
+    rcon "sv_cheats $previous" >/dev/null || {
+      echo "Could not restore sv_cheats" >&2
+      exit 1
+    }
+  }
+  trap restore_cheats EXIT
+  trap 'exit 130' INT TERM
+  rcon 'sv_cheats 1' >/dev/null || exit 1
+  "$@"
+)
+
+spawn_chickens() {
+  local n="$1" i
+  for ((i=0; i<n; i++)); do
+    rcon 'ent_create chicken' >/dev/null || return 1
+  done
 }
 
 # ----- Chickens -----
@@ -779,27 +797,13 @@ fun_chickens_add() {
   local n="${1:-1}"
   [[ "$n" =~ ^[0-9]+$ ]] || { err "Invalid number"; return 1; }
 
-  local prev
-  prev="$(cheats_current)"
-
-  # ent_create requires sv_cheats 1
-  rcon "sv_cheats 1"
-  for ((i=0; i<n; i++)); do
-    rcon "ent_create chicken"
-  done
-  rcon "sv_cheats $prev"
-
+  (( n <= 50 )) || { err "Maximum is 50 chickens."; return 1; }
+  with_temporary_cheats spawn_chickens "$n" || return 1
   ok "Spawned $n chickens."
 }
 
 fun_chickens_clear() {
-  local prev
-  prev="$(cheats_current)"
-
-  rcon "sv_cheats 1"
-  rcon "ent_remove chicken"
-  rcon "sv_cheats $prev"
-
+  with_temporary_cheats rcon 'ent_remove chicken' || return 1
   ok "All chickens removed."
 }
 
@@ -834,7 +838,7 @@ fun_chickens_menu() {
 fun_gravity_set() {
   local g="$1"
   [[ "$g" =~ ^[0-9]+$ ]] || { err "Invalid gravity value"; return 1; }
-  rcon "sv_gravity $g"
+  rcon "sv_gravity $g" >/dev/null || return 1
   ok "sv_gravity set to $g"
 }
 
@@ -859,10 +863,8 @@ fun_gravity_menu() {
 # ----- Speed (host_timescale) -----
 fun_speed_set() {
   local scale="$1"
-  # host_timescale requires sv_cheats 1
-  rcon "sv_cheats 1"
-  rcon "host_timescale $scale"
-  ok "host_timescale set to $scale"
+  with_temporary_cheats rcon "host_timescale $scale" >/dev/null || return 1
+  ok "host_timescale set to $scale; sv_cheats restored."
 }
 
 fun_speed_menu() {
@@ -1065,6 +1067,7 @@ banner() {
   echo -e "  ${CLR_TOOLS}u)${reset} Force update (if empty)  ${CLR_TOOLS}r)${reset} Restart svc  ${CLR_TOOLS}L)${reset} Live logs"
   echo -e "  ${CLR_TOOLS}x)${reset} Backup cfg   ${CLR_TOOLS}c)${reset} Custom RCON"
   echo -e "  ${CLR_TOOLS}T)${reset} Safe update check  ${CLR_TOOLS}t)${reset} Update timer status  ${CLR_TOOLS}G)${reset} Update admin menu (git)"
+  echo -e "  ${CLR_TOOLS}h)${reset} Health check"
   echo
   echo -e "${bold}${cyan}[Access]${reset}"
   echo -e "  ${cyan}J)${reset} Join password menu"
@@ -1120,6 +1123,7 @@ ui_loop() {
       c) read -rp "RCON cmd (blank=cancel): " RC; [[ -z "$RC" ]] && info "Cancelled." || rcon "$RC" ;;
       T) safe_update_now || true ;;
       t) show_update_timer || true ;;
+      h) "$CS2_DIR/cs2-health.sh" || true ;;
       G) update_toolkit_git || true ;;
 
       # Access / Bans / Modes / Weapons / Fun
@@ -1156,12 +1160,17 @@ case "$cmd" in
   list-maps) list_installed_maps ;;
   change-map) change_map "${1:-de_dust2}" ;;
   armsrace-map) armsrace_map "${1:-}" ;;
+  mode) apply_mode_and_reload "${1:-}" ;;
   rcon) rcon "$@" ;;
   list-banned) list_banned ;;
   unban-select) unban_select ;;
   join-pass-menu) join_password_menu ;;
   safe-update) safe_update_now ;;
   show-timer) show_update_timer ;;
+  health) "$CS2_DIR/cs2-health.sh" ;;
+  weapons-show) weapons_block_show ;;
+  weapons-set) weapons_block_set "${1:-}" ;;
+  weapons-clear) weapons_block_clear ;;
   update-toolkit) update_toolkit_git ;;
   *) ui_loop ;;
 esac

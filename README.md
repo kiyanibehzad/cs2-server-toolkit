@@ -6,9 +6,10 @@
 ⚡ One-command installer & admin toolkit for Counter-Strike 2 dedicated servers.  
 Includes:
 - Automatic installation & player-safe updates (via `systemd --user` timers)
-- Interactive admin menu (maps, game modes, bans, weapons block, chickens, logs, restart)
+- Interactive admin menu (maps, game modes, bans, persistent weapon restrictions, chickens, logs, restart, health check)
 - User-level `systemd` service (auto-start after reboot with linger)
 - One safe update path for timers and manual updates
+- Source RCON client that reads split responses and keeps the RCON password out of its command line
 
 ---
 
@@ -84,6 +85,10 @@ Looking for a reliable VPS or dedicated server for CS2?
   For scripts, use `~/cs2-ds/cs2-admin.sh armsrace-map ar_pool_day` (or
   `ar_shoots` / `ar_baggage`).
 
+  Run `~/cs2-ds/cs2-admin.sh health` for a read-only service, RCON, port,
+  build and file-permission check. Steam/VAC login is reported as unknown when
+  the game does not expose a reliable status signal.
+
 - **Check logs**
   ```bash
   journalctl --user -u cs2-ds -f
@@ -91,7 +96,26 @@ Looking for a reliable VPS or dedicated server for CS2?
 
 ---
 
-## ⚙️ Custom game mode configs (`*_server.cfg`)
+## ⚙️ Configuration and game modes
+
+`.update.env` holds the toolkit's private launch settings, including GSLT,
+network settings and RCON credentials. `start.sh` reads it on every start.
+GSLT is passed to the game at launch; `cs2server.cfg` is no longer a second
+toolkit source for it. Existing duplicate GSLT lines are removed during
+reinstallation after a restricted backup is made.
+
+The weapon menu saves the chosen list in `~/cs2-ds/toolkit-config/blocked-weapons.txt`.
+The toolkit generates `game/csgo/cfg/cs2_toolkit.cfg` and includes it from
+`cs2server.cfg` and the supported `gamemode_*_server.cfg` override files.
+These includes are recreated at server start. Valve's `gamemode_*.cfg` base
+files are never edited by the toolkit. The menu's Fun settings are temporary;
+the join password is persistent in `.update.env` and `cs2server.cfg`.
+
+Mode switches set `game_type`, `game_mode`, `sv_game_mode_flags` and
+`sv_skirmish_id` before the map loads, then read back the resulting values.
+The Competitive preset also reapplies and checks MR12 overtime settings.
+
+### Your own mode overrides (`*_server.cfg`)
 
 CS2 loads a base game-mode config and then (if present) a **server override** with the suffix `_server.cfg`.  
 This lets you keep your persistent settings separate from Valve defaults and from the toolkit menu.
@@ -156,16 +180,21 @@ sv_visiblemaxplayers 32
 ```
 
 **4) Weapon restrictions (global)**  
-You can keep this inside a mode’s `_server.cfg` or in a separate file you `exec`:
+Use the `w` menu or `weapons-set` command. Friendly names and supported
+canonical names are converted to item definition indices, which is what
+`mp_items_prohibited` expects. For example:
 ```cfg
-// ban AWP + SCOUT
-mp_items_prohibited "weapon_awp,weapon_ssg08"
+// AWP (9) and SSG 08 (40)
+mp_items_prohibited "9,40"
 ```
+Manual lines in other configs may override the toolkit value; the menu's saved
+list is applied at the end of each supported mode override and mode switch.
+Check an actual buy attempt in CS2 after changing restrictions, since a ConVar
+readback alone does not prove game-rule enforcement.
 
 **5) Fun: chickens**
-```cfg
-mp_enablechickens 1
-```
+Use the Fun menu to spawn chickens with `ent_create chicken`. The obsolete
+`mp_enablechickens` command is not supported by the current server.
 
 ### Applying changes
 
@@ -180,7 +209,7 @@ mp_enablechickens 1
 ### Tips & best practices
 
 - Keep permanent, “always-on” rules in the relevant `*_server.cfg`.  
-- Use the admin menu for **temporary** toggles (e.g., weapon block, quick practice, chickens).  
+- Use the admin menu for temporary Fun commands and the persistent weapon list.
 - If a setting is fighty (e.g., a menu preset also sets it), the last executed file wins.  
 - You can create **per-map** overrides using `mapname.cfg` (e.g., `de_mirage.cfg`) if needed.
 
@@ -196,7 +225,9 @@ Two timers invoke the same player-safe updater:
 When a new build is available, the updater checks the player count through
 RCON. If players are present or RCON cannot be trusted, it defers the update.
 It also prevents overlapping runs and restarts a previously running server if
-SteamCMD fails. A stopped server remains stopped.
+SteamCMD fails. A stopped server remains stopped. After SteamCMD reports
+success, the updater checks the installed manifest, executable and known
+public build before reporting a verified update.
 
 Run a check or request an update manually:
 
@@ -226,6 +257,11 @@ journalctl --user -u cs2-ds.service -n 50 --no-pager
 The installer restricts `.update.env` and `cs2server.cfg` to the game user.
 Do not commit these files or paste their contents into an issue: they hold
 RCON credentials and possibly the GSLT.
+
+References: [Valve's CS2 server launch example](https://github.com/ValveSoftware/counter-strike_rules_and_regs/blob/main/major-supplemental-rulebook.md),
+[Valve Developer Community game modes](https://developer.valvesoftware.com/wiki/Counter-Strike:_Global_Offensive/Game_Modes),
+[SteamCMD](https://developer.valvesoftware.com/wiki/SteamCMD), and
+[Source RCON protocol](https://developer.valvesoftware.com/wiki/Source_RCON_Protocol).
 
 ---
 

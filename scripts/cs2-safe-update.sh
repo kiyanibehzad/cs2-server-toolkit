@@ -35,7 +35,7 @@ local_buildid() {
 
 remote_buildid() {
   "$STEAMCMD" +login anonymous +app_info_update 1 +app_info_print "$APP" +quit \
-    | tr -d '\r' | awk -F'"' '/"buildid"/{print $4; exit}'
+    | tr -d '\r' | python3 "$CS2_DIR/cs2-buildid.py"
 }
 
 # Return 0 when empty, 1 when occupied, and 2 when status cannot be trusted.
@@ -47,8 +47,13 @@ players_empty() {
   host="${HOST_IP:-127.0.0.1}"
   port="${PORT:-27015}"
   pass="${RCON_PASS:-}"
-  [[ -n "$pass" ]] && command -v mcrcon >/dev/null || return 2
-  output="$(mcrcon -H "$host" -P "$port" -p "$pass" status 2>/dev/null)" || return 2
+  [[ -n "$pass" ]] || return 2
+  if [[ -x "$CS2_DIR/cs2-rcon.py" ]]; then
+    output="$(RCON_PASS="$pass" "$CS2_DIR/cs2-rcon.py" -H "$host" -P "$port" status 2>/dev/null)" || return 2
+  else
+    command -v mcrcon >/dev/null || return 2
+    output="$(mcrcon -H "$host" -P "$port" -p "$pass" status 2>/dev/null)" || return 2
+  fi
   humans="$(printf '%s\n' "$output" | awk -F'[, ]+' '/^players[[:space:]]*:/ {print $3; exit}')"
   [[ "$humans" =~ ^[0-9]+$ ]] || return 2
   (( humans == 0 ))
@@ -84,8 +89,8 @@ restore_server() {
 }
 trap restore_server EXIT
 
+remote=""
 if [[ "$MODE" == --check ]]; then
-  remote=""
   for attempt in 1 2 3; do
     remote="$(remote_buildid || true)"
     [[ "$remote" =~ ^[0-9]+$ ]] && break
@@ -94,10 +99,15 @@ if [[ "$MODE" == --check ]]; then
   [[ "$remote" =~ ^[0-9]+$ ]] || { log "remote build ID unavailable; skipping"; exit 1; }
   localb="$(local_buildid || true)"
   log "local=${localb:-unknown} remote=$remote"
-  if [[ -n "$localb" && "$localb" == "$remote" ]]; then
+  if [[ -n "$localb" && "$localb" == "$remote" && -x "$CS2_DIR/game/bin/linuxsteamrt64/cs2" ]]; then
     log "up to date"
     exit 0
   fi
+else
+  # --force still verifies against the public build when Steam metadata is
+  # available. It does not require that lookup to start a repair update.
+  remote="$(remote_buildid || true)"
+  [[ "$remote" =~ ^[0-9]+$ ]] || remote=""
 fi
 
 state="$(systemctl --user show "$UNIT" -p ActiveState --value 2>/dev/null)" || {
@@ -131,7 +141,16 @@ case "$state" in
 esac
 
 if update_game; then
-  log "game update succeeded"
+  installed="$(local_buildid || true)"
+  if [[ ! "$installed" =~ ^[0-9]+$ || ! -x "$CS2_DIR/game/bin/linuxsteamrt64/cs2" ]]; then
+    log "ERROR: SteamCMD exited successfully but installed build or server binary is missing"
+    exit 1
+  fi
+  if [[ -n "$remote" && "$installed" != "$remote" ]]; then
+    log "ERROR: installed build $installed does not match current public build $remote"
+    exit 1
+  fi
+  log "game update verified: installed build $installed"
 else
   log "game update failed; restoring previous server state"
   exit 1

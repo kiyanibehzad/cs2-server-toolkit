@@ -84,22 +84,12 @@ done
 
 if command -v apt-get >/dev/null 2>&1; then
   sudo apt-get update
-  sudo apt-get install -y curl ca-certificates lib32gcc-s1 git build-essential util-linux
+  sudo apt-get install -y curl ca-certificates lib32gcc-s1 git util-linux python3
 fi
 
 if [[ ! -x "$CS2_HOME/steamcmd/steamcmd.sh" ]]; then
   mkdir -p "$CS2_HOME/steamcmd"
   (cd "$CS2_HOME/steamcmd" && curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz)
-fi
-
-if ! command -v mcrcon >/dev/null 2>&1; then
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
-  git clone --depth 1 https://github.com/Tiiffi/mcrcon.git "$tmp/mcrcon"
-  make -C "$tmp/mcrcon"
-  sudo install -m 0755 "$tmp/mcrcon/mcrcon" /usr/local/bin/mcrcon
-  rm -rf "$tmp"
-  trap - EXIT
 fi
 
 mkdir -p "$CS2_DIR" "$UNIT_DIR" "$CS2_DIR/backups"
@@ -111,6 +101,10 @@ else
 fi
 
 install -m 0755 "$REPO_DIR/scripts/cs2-admin.sh" "$CS2_DIR/cs2-admin.sh"
+install -m 0755 "$REPO_DIR/scripts/cs2-config.sh" "$CS2_DIR/cs2-config.sh"
+install -m 0755 "$REPO_DIR/scripts/cs2-rcon.py" "$CS2_DIR/cs2-rcon.py"
+install -m 0755 "$REPO_DIR/scripts/cs2-buildid.py" "$CS2_DIR/cs2-buildid.py"
+install -m 0755 "$REPO_DIR/scripts/cs2-health.sh" "$CS2_DIR/cs2-health.sh"
 install -m 0755 "$REPO_DIR/scripts/cs2-safe-update.sh" "$CS2_DIR/cs2-safe-update.sh"
 install -m 0755 "$REPO_DIR/scripts/update-cs2.sh" "$CS2_DIR/update-cs2.sh"
 install -m 0755 "$REPO_DIR/scripts/start.sh" "$CS2_DIR/start.sh"
@@ -145,10 +139,16 @@ if [[ ! -f "$CFG" ]]; then
     printf '%s\n' 'sv_lan 0' 'bot_quota 0' 'mp_maxrounds 24' 'mp_halftime 1' \
       'mp_overtime_enable 1' 'mp_overtime_maxrounds 6' 'mp_freezetime 15' \
       'mp_buytime 20' 'mp_autokick 0'
-    [[ -z "$GSLT" ]] || printf 'sv_setsteamaccount "%s"\n' "$GSLT"
   } > "$CFG"
 fi
 chmod 600 "$CFG"
+if [[ -n "$GSLT" ]] && grep -Eq '^[[:space:]]*sv_setsteamaccount[[:space:]]' "$CFG"; then
+  cp -p "$CFG" "$CFG.before-gslt-migration"
+  sed -i '/^[[:space:]]*sv_setsteamaccount[[:space:]]/d' "$CFG"
+  chmod 600 "$CFG"
+  echo "Removed duplicate GSLT setting from cs2server.cfg (backup saved)."
+fi
+"$CS2_DIR/cs2-config.sh" sync
 
 umask 077
 cat > "$UNIT_DIR/cs2-ds.env" <<EOF

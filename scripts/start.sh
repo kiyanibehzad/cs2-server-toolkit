@@ -7,18 +7,19 @@ BIN_DIR="$BASE_DIR/game/bin/linuxsteamrt64"
 CFG_NAME="cs2server.cfg"
 
 CONF="$BASE_DIR/.update.env"
+# shellcheck disable=SC1090
 [[ -f "$CONF" ]] && . "$CONF"
+"$BASE_DIR/cs2-config.sh" sync || exit 1
 
 IP="${BIND_IP:-${HOST_IP:-0.0.0.0}}"
 PORT="${PORT:-27015}"
 MAXPLAYERS="${MAXPLAYERS:-32}"
 DEFAULT_MAP="${DEFAULT_MAP:-de_dust2}"
 
-cd "$BIN_DIR"
+cd "$BIN_DIR" || exit 1
 
-# The token is also in cs2server.cfg. Keep the launch argument for existing
-# installations that rely on registering before the map loads.
+# .update.env is the only toolkit source for the game server login token.
 args=(-dedicated -usercon -ip "$IP" -port "$PORT" -maxplayers "$MAXPLAYERS")
 [[ -n "${GSLT:-}" ]] && args+=(+sv_setsteamaccount "$GSLT")
-args+=(+map "$DEFAULT_MAP" +exec "$CFG_NAME" -console)
+args+=(+game_type 0 +game_mode 1 +map "$DEFAULT_MAP" +exec "$CFG_NAME" -console)
 exec "$BIN_DIR/cs2" "${args[@]}"

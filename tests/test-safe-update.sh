@@ -5,16 +5,22 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 mkdir -p "$TEST_ROOT/bin" "$TEST_ROOT/game/steamapps"
+cp "$REPO/scripts/cs2-buildid.py" "$TEST_ROOT/game/cs2-buildid.py"
+mkdir -p "$TEST_ROOT/game/game/bin/linuxsteamrt64"
+touch "$TEST_ROOT/game/game/bin/linuxsteamrt64/cs2"
+chmod +x "$TEST_ROOT/game/game/bin/linuxsteamrt64/cs2"
 printf 'HOST_IP=127.0.0.1\nPORT=27015\nRCON_PASS=test\n' > "$TEST_ROOT/game/.update.env"
 printf '"buildid" "100"\n' > "$TEST_ROOT/game/steamapps/appmanifest_730.acf"
 
 cat > "$TEST_ROOT/bin/steamcmd" <<'EOF'
 #!/usr/bin/env bash
 if [[ " $* " == *' +app_info_print '* ]]; then
-  printf '"buildid" "%s"\n' "${REMOTE_BUILD:-200}"
+  printf '"730"\n{\n"depots"\n{\n"branches"\n{\n"test"\n{\n"buildid" "123"\n}\n"public"\n{\n"buildid" "%s"\n}\n}\n}\n}\n' "${REMOTE_BUILD:-200}"
 elif [[ " $* " == *' +app_update '* ]]; then
   printf 'update %s\n' "$*" >> "$EVENTS"
-  [[ "${UPDATE_FAIL:-0}" == 0 ]]
+  [[ "${UPDATE_FAIL:-0}" == 0 ]] || exit 1
+  [[ "${UNCHANGED_BUILD:-0}" == 0 ]] && printf '"buildid" "%s"\n' "${REMOTE_BUILD:-200}" > "$CS2_DIR/steamapps/appmanifest_730.acf"
+  exit 0
 fi
 EOF
 cat > "$TEST_ROOT/bin/systemctl" <<'EOF'
@@ -47,6 +53,7 @@ export CS2_DIR="$TEST_ROOT/game" EVENTS="$TEST_ROOT/events" STATE_FILE="$TEST_RO
 run_case() {
   local name="$1" expected_exit="$2" expected_events="$3" mode="$4"; shift 4
   printf 'active\n' > "$STATE_FILE"
+  printf '"buildid" "100"\n' > "$CS2_DIR/steamapps/appmanifest_730.acf"
   : > "$EVENTS"
   local actual=0
   env "$@" "$REPO/scripts/cs2-safe-update.sh" "$mode" > "$TEST_ROOT/output" 2>&1 || actual=$?
@@ -63,6 +70,8 @@ run_case force_occupied 0 '' --force HUMANS=2
 run_case rcon_unavailable 1 '' --check RCON_FAIL=1
 run_case update_success 0 'stop,update,start' --check
 grep -Fq "+force_install_dir $CS2_DIR" "$EVENTS"
+run_case multi_release_gap 0 'stop,update,start' --check REMOTE_BUILD=999
+run_case unchanged_build 1 'stop,update,start' --check UNCHANGED_BUILD=1
 run_case update_failure 1 'stop,update,update,update,start' --check UPDATE_FAIL=1
 run_case stop_failure 1 'stop,start' --check STOP_FAIL=1
 run_case locked 0 '' --check LOCK_BUSY=1

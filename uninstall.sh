@@ -1,6 +1,5 @@
 #!/bin/bash
 set -euo pipefail
-CS2_USER="$(id -un)"
 CS2_HOME="$HOME"
 [[ "$(id -u)" -ne 0 ]] || { echo "Run as the game user, not root." >&2; exit 1; }
 UNIT_DIR="$CS2_HOME/.config/systemd/user"
