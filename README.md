@@ -126,7 +126,11 @@ This lets you keep your persistent settings separate from Valve defaults and fro
 2. `gamemode_<mode>_server.cfg` (your overrides — takes priority)  
 3. Anything you manually `exec` (e.g., via admin menu)  
 
-Where `<mode>` is one of: `casual`, `competitive`, `wingman`, `deathmatch`, …
+For example, Competitive uses `gamemode_competitive_server.cfg`, Wingman uses
+`gamemode_competitive2v2_server.cfg`, Retakes uses
+`gamemode_retakecasual_server.cfg`, and Arms Race uses
+`gamemode_armsrace_server.cfg`. The file stem does not always match the menu
+name.
 
 ### File locations
 
