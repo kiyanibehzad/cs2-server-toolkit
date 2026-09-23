@@ -34,7 +34,7 @@ else
   report RCON 'unavailable (config/client missing)'
 fi
 
-if command -v ss >/dev/null 2>&1 && ss -H -lun 2>/dev/null | awk '{print $5}' | grep -Eq "(^|:)$PORT$"; then
+if command -v ss >/dev/null 2>&1 && ss -H -lun 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)$PORT$"; then
   report 'Game UDP port' "listening on $PORT"
 else
   report 'Game UDP port' 'not detected'
