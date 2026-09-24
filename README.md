@@ -85,6 +85,12 @@ Looking for a reliable VPS or dedicated server for CS2?
   For scripts, use `~/cs2-ds/cs2-admin.sh armsrace-map ar_pool_day` (or
   `ar_shoots` / `ar_baggage`).
 
+  Press `R` for Rush. This chooses `rush_001` and applies the Rush preset in
+  one action. Valve's Rush uses one map file with arenas selected within the
+  match. The option is available when the map is installed. From a shell, use
+  `~/cs2-ds/cs2-admin.sh rush-map rush_001`. Switching back to Competitive on
+  Dust II can be done with `~/cs2-ds/cs2-admin.sh mode comp_mr12 de_dust2`.
+
   Run `~/cs2-ds/cs2-admin.sh health` for a read-only service, RCON, port,
   build and file-permission check. Steam/VAC login is reported as unknown when
   the game does not expose a reliable status signal.
@@ -129,7 +135,8 @@ This lets you keep your persistent settings separate from Valve defaults and fro
 For example, Competitive uses `gamemode_competitive_server.cfg`, Wingman uses
 `gamemode_competitive2v2_server.cfg`, Retakes uses
 `gamemode_retakecasual_server.cfg`, and Arms Race uses
-`gamemode_armsrace_server.cfg`. The file stem does not always match the menu
+`gamemode_armsrace_server.cfg`. Rush uses `gamemode_rush_server.cfg`. The file
+stem does not always match the menu
 name.
 
 ### File locations

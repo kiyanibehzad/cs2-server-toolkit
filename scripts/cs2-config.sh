@@ -89,7 +89,8 @@ sync_config() {
   for file in \
     gamemode_competitive_server.cfg gamemode_casual_server.cfg \
     gamemode_competitive2v2_server.cfg gamemode_deathmatch_server.cfg \
-    gamemode_retakecasual_server.cfg gamemode_armsrace_server.cfg; do
+    gamemode_retakecasual_server.cfg gamemode_armsrace_server.cfg \
+    gamemode_rush_server.cfg; do
     ensure_hook "$CFG_DIR/$file"
   done
 }

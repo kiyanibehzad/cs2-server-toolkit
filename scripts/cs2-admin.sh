@@ -389,18 +389,22 @@ verify_convar() {
   fi
 }
 
-# Common settings: no bots, no autobalance, no limits
+# Common settings: no autobalance or team limits. Rush keeps Valve's fill bots.
 apply_common_team_settings() {
+  local mode="${1:-}"
   rcon "mp_autoteambalance 0" >/dev/null || return 1
   rcon "mp_limitteams 0" >/dev/null || return 1
 
-  # Disable bots for all presets
-  rcon "bot_quota 0" >/dev/null || return 1
-  rcon "bot_join_after_player 0" >/dev/null || return 1
-  rcon "bot_quota_mode normal" >/dev/null || return 1
-
-  # Remove any bots that are already in the server
-  rcon "bot_kick" >/dev/null || return 1
+  if [[ "$mode" == rush ]]; then
+    # gamemode_rush.cfg ships with two fill bots; retain that behavior.
+    rcon "bot_quota_mode fill" >/dev/null || return 1
+    rcon "bot_quota 2" >/dev/null || return 1
+  else
+    rcon "bot_quota 0" >/dev/null || return 1
+    rcon "bot_join_after_player 0" >/dev/null || return 1
+    rcon "bot_quota_mode normal" >/dev/null || return 1
+    rcon "bot_kick" >/dev/null || return 1
+  fi
 }
 
 # Apply a complete identity before loading the map. Values are derived from
@@ -414,6 +418,7 @@ mode_identity() {
     deathmatch) type=1; game=2 ;;
     retakes) type=0; game=0; skirmish=12 ;;
     armsrace) type=1; game=0 ;;
+    rush) type=0; game=6 ;;
     *) err "Unknown mode: $mode"; return 1 ;;
   esac
   set_mode_core "$type" "$game" "$skirmish" || return 1
@@ -448,7 +453,7 @@ apply_mode_rules() {
   for command in "${commands[@]}"; do
     rcon "$command" >/dev/null || { err "Failed: $command"; return 1; }
   done
-  apply_common_team_settings || return 1
+  apply_common_team_settings "$mode" || return 1
   rcon 'exec cs2_toolkit.cfg' >/dev/null || return 1
   verify_convar game_type "$MODE_TYPE" || return 1
   verify_convar game_mode "$MODE_GAME" || return 1
@@ -463,6 +468,7 @@ apply_mode_rules() {
 apply_mode_and_reload() {
   local mode="$1" map="${2:-}" cur
   ensure_server_running || { err "Server not ready; cannot apply mode."; return 1; }
+  [[ "$mode" == rush && -z "$map" ]] && map=rush_001
   if [[ -n "$map" && "$STRICT_CHECK" -eq 1 ]] && ! has_map "$map"; then
     err "Map '$map' is not installed; mode was not changed."
     return 1
@@ -518,6 +524,37 @@ armsrace_map_menu() {
   esac
 }
 
+rush_map() {
+  local map="$1"
+  case "$map" in
+    rush_001) ;;
+    *) err "Unknown Rush map: $map"; return 1 ;;
+  esac
+  if ! has_map "$map"; then
+    err "Map '$map' is not installed; mode was not changed."
+    return 1
+  fi
+  apply_mode_and_reload rush "$map"
+}
+
+rush_map_menu() {
+  local sel
+  echo; echo -e "${bold}${CLR_MAPS}[Rush Maps (map + preset)]${reset}"
+  if has_map rush_001; then
+    echo -e "  ${CLR_MAPS}1)${reset} rush_001 (official Rush map)"
+  else
+    echo -e "  ${CLR_MAPS}1)${reset} rush_001 [not installed]"
+  fi
+  echo -e "  ${CLR_MAPS}0)${reset} Back"
+  echo
+  read -rp "Select: " sel
+  case "$sel" in
+    1) rush_map rush_001 ;;
+    0|"") return 0 ;;
+    *) err "Invalid selection"; return 1 ;;
+  esac
+}
+
 # Menu
 mode_menu() {
   echo; echo -e "${bold}${CLR_MODES}[Game Mode Presets]${reset}"
@@ -527,6 +564,7 @@ mode_menu() {
   echo -e "  ${CLR_MODES}4)${reset} Deathmatch"
   echo -e "  ${CLR_MODES}5)${reset} Retakes"
   echo -e "  ${CLR_MODES}6)${reset} Arms Race"
+  echo -e "  ${CLR_MODES}7)${reset} Rush (rush_001)"
   echo -e "  ${CLR_MODES}0)${reset} Back"
   echo
   read -rp "Select: " sel
@@ -537,6 +575,7 @@ mode_menu() {
     4) apply_mode_and_reload deathmatch ;;
     5) apply_mode_and_reload retakes ;;
     6) apply_mode_and_reload armsrace ;;
+    7) rush_map rush_001 ;;
     0|"") return 0 ;;
     *) err "Invalid selection" ;;
   esac
@@ -683,7 +722,8 @@ edit_mode_server_cfg_menu() {
     echo "  4) deathmatch    -> gamemode_deathmatch_server.cfg"
     echo "  5) retakes       -> gamemode_retakecasual_server.cfg"
     echo "  6) arms race     -> gamemode_armsrace_server.cfg"
-    echo "  7) custom name..."
+    echo "  7) rush          -> gamemode_rush_server.cfg"
+    echo "  8) custom name..."
     echo "  0) Back"
 
     read -rp "Select: " sel
@@ -695,7 +735,8 @@ edit_mode_server_cfg_menu() {
       4) target="$cfgdir/gamemode_deathmatch_server.cfg" ;;
       5) target="$cfgdir/gamemode_retakecasual_server.cfg" ;;
       6) target="$cfgdir/gamemode_armsrace_server.cfg" ;;
-      7)
+      7) target="$cfgdir/gamemode_rush_server.cfg" ;;
+      8)
          read -rp "Enter base name (example: surf -> surf_server.cfg): " base
          [[ -z "$base" ]] && continue
          target="$cfgdir/${base}_server.cfg"
@@ -1055,6 +1096,7 @@ banner() {
   echo -e "  ${CLR_MAPS}9)${reset} de_cache     ${CLR_MAPS}0)${reset} de_train"
   echo -e "  ${CLR_MAPS}p)${reset} List installed maps"
   echo -e "  ${CLR_MAPS}A)${reset} Arms Race maps (Pool Day / Shoots / Baggage + preset)"
+  echo -e "  ${CLR_MAPS}R)${reset} Rush map (rush_001 + preset)"
   echo
   echo -e "${bold}${CLR_BOTS}[Bots]${reset}"
   echo -e "  ${CLR_BOTS}b)${reset} Add bot      ${CLR_BOTS}n)${reset} Add bot (CT)   ${CLR_BOTS}m)${reset} Add bot (T)"
@@ -1101,6 +1143,7 @@ ui_loop() {
       1|2|3|4|5|6|7|8|9|0) map="$(map_for_key "$key")"; [[ -n "$map" ]] && change_map "$map" || warn "Unknown key" ;;
       p) list_installed_maps || true ;;
       A) armsrace_map_menu || true ;;
+      R) rush_map_menu || true ;;
 
       # Bots
       b) add_bot auto || true ;;
@@ -1160,7 +1203,8 @@ case "$cmd" in
   list-maps) list_installed_maps ;;
   change-map) change_map "${1:-de_dust2}" ;;
   armsrace-map) armsrace_map "${1:-}" ;;
-  mode) apply_mode_and_reload "${1:-}" ;;
+  rush-map) rush_map "${1:-}" ;;
+  mode) apply_mode_and_reload "${1:-}" "${2:-}" ;;
   rcon) rcon "$@" ;;
   list-banned) list_banned ;;
   unban-select) unban_select ;;

@@ -10,6 +10,7 @@ chmod +x "$TEST_ROOT/game/cs2-config.sh"
 printf 'HOST_IP=127.0.0.1\nPORT=27015\nRCON_PASS=test\n' > "$TEST_ROOT/game/.update.env"
 touch "$TEST_ROOT/game/game/csgo/maps/ar_pool_day.vpk"
 touch "$TEST_ROOT/game/game/csgo/maps/ar_shoots.vpk"
+touch "$TEST_ROOT/game/game/csgo/maps/rush_001.vpk"
 touch "$TEST_ROOT/game/game/csgo/maps/de_dust2.vpk"
 
 cat > "$TEST_ROOT/bin/systemctl" <<'EOF'
@@ -83,16 +84,59 @@ run_case unknown_map 1 'ar_pool_day;quit'
 export CHANGE_FAIL=1
 run_case failed_change 1 ar_pool_day
 grep -Fxq 'changelevel ar_pool_day' "$EVENTS"
-! grep -Fxq 'mp_restartgame 1' "$EVENTS"
-! grep -Fxq 'say Game mode switched to: armsrace' "$EVENTS"
+if grep -Fxq 'mp_restartgame 1' "$EVENTS" || grep -Fxq 'say Game mode switched to: armsrace' "$EVENTS"; then
+  echo 'FAIL failed_change: applied rules after map change failed'; exit 1
+fi
 
 unset CHANGE_FAIL
+: > "$EVENTS"
+"$REPO/scripts/cs2-admin.sh" rush-map rush_001 > "$TEST_ROOT/output" 2>&1
+grep -Fxq 'game_type 0' "$EVENTS"
+grep -Fxq 'game_mode 6' "$EVENTS"
+grep -Fxq 'sv_skirmish_id 0' "$EVENTS"
+grep -Fxq 'changelevel rush_001' "$EVENTS"
+grep -Fxq 'bot_quota_mode fill' "$EVENTS"
+grep -Fxq 'bot_quota 2' "$EVENTS"
+if grep -Fxq 'bot_kick' "$EVENTS"; then
+  echo 'FAIL rush_map_and_preset: kicked Rush fill bots'; exit 1
+fi
+[[ "$(grep -n '^game_mode 6$' "$EVENTS" | head -n1 | cut -d: -f1)" -lt "$(grep -n '^changelevel rush_001$' "$EVENTS" | head -n1 | cut -d: -f1)" ]]
+echo 'PASS rush_map_and_preset'
+
+: > "$EVENTS"
+"$REPO/scripts/cs2-admin.sh" mode rush > "$TEST_ROOT/output" 2>&1
+grep -Fxq 'changelevel rush_001' "$EVENTS"
+echo 'PASS rush_mode_selects_its_map'
+
+: > "$EVENTS"
+if "$REPO/scripts/cs2-admin.sh" rush-map 'rush_001;quit' > "$TEST_ROOT/output" 2>&1; then
+  echo 'FAIL unsafe Rush map accepted'; exit 1
+fi
+[[ ! -s "$EVENTS" ]]
+
+rm "$TEST_ROOT/game/game/csgo/maps/rush_001.vpk"
+: > "$EVENTS"
+if "$REPO/scripts/cs2-admin.sh" rush-map rush_001 > "$TEST_ROOT/output" 2>&1; then
+  echo 'FAIL missing Rush map accepted'; exit 1
+fi
+[[ ! -s "$EVENTS" ]]
+echo 'PASS rush_invalid_or_missing_map'
+
+printf 'de_dust2\n' > "$MAP_STATE"
+touch "$TEST_ROOT/game/game/csgo/maps/rush_001.vpk"
+"$REPO/scripts/cs2-admin.sh" mode rush rush_001 > "$TEST_ROOT/output" 2>&1
+"$REPO/scripts/cs2-admin.sh" mode comp_mr12 de_dust2 > "$TEST_ROOT/output" 2>&1
+[[ "$(cat "$MAP_STATE")" == de_dust2 ]]
+[[ "$(cat "$TEST_ROOT/game_mode")" == 1 ]]
+echo 'PASS rush_to_competitive_with_map'
+
 "$REPO/scripts/cs2-admin.sh" mode retakes > "$TEST_ROOT/output" 2>&1
 [[ "$(cat "$TEST_ROOT/sv_skirmish_id")" == 12 ]]
 "$REPO/scripts/cs2-admin.sh" mode comp_mr12 > "$TEST_ROOT/output" 2>&1
 [[ "$(cat "$TEST_ROOT/sv_skirmish_id")" == 0 ]]
 [[ "$(cat "$TEST_ROOT/mp_overtime_enable")" == 1 ]]
 [[ "$(cat "$TEST_ROOT/mp_overtime_maxrounds")" == 6 ]]
+[[ "$(cat "$TEST_ROOT/bot_quota")" == 0 ]]
 echo 'PASS retakes_to_competitive'
 
 "$REPO/scripts/cs2-admin.sh" weapons-set 'AWP, Negev, AWP' > "$TEST_ROOT/output" 2>&1
