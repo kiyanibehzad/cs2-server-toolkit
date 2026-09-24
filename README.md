@@ -3,10 +3,12 @@
 ![Untitled-1](https://github.com/user-attachments/assets/92064f95-45fa-4700-982d-e96a972f3f2a)
 
 
-⚡ One-command installer & admin toolkit for Counter-Strike 2 dedicated servers.  
+⚡ One-command installer and admin toolkit for Counter-Strike 2 dedicated servers.
 Includes:
-- Automatic installation & player-safe updates (via `systemd --user` timers)
-- Interactive admin menu (maps, game modes, bans, persistent weapon restrictions, chickens, logs, restart, health check)
+- Automatic installation and player-safe updates (via `systemd --user` timers)
+- Interactive admin menu with Arms Race and Rush map/mode presets, plus one-key return to Competitive on Dust II
+- Persistent bot controls (on/off, kick, add multiple, exact count, difficulty) and weapon restrictions
+- Bans, join password, fun settings, logs, restart, and health check
 - User-level `systemd` service (auto-start after reboot with linger)
 - One safe update path for timers and manual updates
 - Source RCON client that reads split responses and keeps the RCON password out of its command line
