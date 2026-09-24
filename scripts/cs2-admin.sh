@@ -159,16 +159,9 @@ ensure_user_systemd_env() {
 status()      { rcon status; }
 say()         { rcon "say $*"; }
 add_bot()     { case "${1:-auto}" in ct) rcon "bot_add_ct";; t) rcon "bot_add_t";; *) rcon "bot_add";; esac; }
-remove_bots() { rcon "bot_kick"; }
-bot_quota()   { rcon "bot_quota $1" && rcon "bot_quota_mode fill" && ok "bot_quota=$1 (fill)"; }
+remove_bots() { bot_set_count 0; }
+bot_quota()   { bot_set_count "$1"; }
 kick_all()    { rcon "kickall"; }
-
-# Bot difficulty: 0 easy, 1 normal, 2 hard, 3 expert
-bot_difficulty_set() {
-  local v="$1"
-  [[ "$v" =~ ^[0-3]$ ]] || { err "Invalid difficulty (use 0 easy, 1 normal, 2 hard, 3 expert)"; return 1; }
-  rcon "bot_difficulty $v" && ok "bot_difficulty=$v applied"
-}
 
 current_map() {
   # Try to parse current map from `status` output
@@ -375,6 +368,135 @@ convar_value() {
   local name="$1" output
   output="$(rcon "$name")" || return 1
   printf '%s\n' "$output" | sed -nE "s/^[[:space:]]*${name}[[:space:]]*=[[:space:]]*(.*)$/\1/p" | head -n 1
+}
+
+# An explicit bot choice is saved in cs2_toolkit.cfg, which runs after Valve's
+# mode cfg on each map load. With no saved choice, mode defaults remain intact.
+bot_saved_settings() {
+  local saved
+  BOT_SAVED_COUNT='' BOT_SAVED_DIFFICULTY='' BOT_SAVED_LAST=2
+  [[ -x "$CONFIG_TOOL" ]] || return 0
+  saved="$("$CONFIG_TOOL" bots-show)" || return 1
+  [[ -n "$saved" ]] && read -r BOT_SAVED_COUNT BOT_SAVED_DIFFICULTY BOT_SAVED_LAST <<< "$saved"
+  return 0
+}
+
+bot_live_settings() {
+  local line
+  BOT_LIVE_COUNT="$(convar_value bot_quota)" || return 1
+  BOT_LIVE_MODE="$(convar_value bot_quota_mode)" || return 1
+  BOT_LIVE_DIFFICULTY="$(convar_value bot_difficulty)" || return 1
+  BOT_LIVE_MODE="${BOT_LIVE_MODE//\"/}"
+  [[ -n "$BOT_LIVE_COUNT" && -n "$BOT_LIVE_MODE" && -n "$BOT_LIVE_DIFFICULTY" ]] || return 1
+  line="$(rcon status 2>/dev/null | grep -E '^[[:space:]]*players[[:space:]]*:' | head -n 1)" || true
+  BOT_ACTIVE="$(printf '%s\n' "$line" | sed -nE 's/.*[, ]([0-9]+) bots([ ,(]|$).*/\1/p')"
+  [[ "$BOT_LIVE_COUNT" =~ ^[0-9]+$ ]] || BOT_LIVE_COUNT=0
+  [[ "$BOT_LIVE_DIFFICULTY" =~ ^[0-3]$ ]] || BOT_LIVE_DIFFICULTY=2
+}
+
+bot_count_for_control() {
+  if [[ "$BOT_LIVE_MODE" == normal ]]; then
+    printf '%s' "$BOT_LIVE_COUNT"
+  elif [[ "$BOT_ACTIVE" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$BOT_ACTIVE"
+  else
+    printf '%s' "$BOT_LIVE_COUNT"
+  fi
+}
+
+bot_apply() {
+  local count="$1" difficulty="$2" last="$3" recreate="${4:-no}"
+  [[ "$count" =~ ^(0|[1-9]|[1-5][0-9]|6[0-4])$ ]] || { err 'Bot count must be 0-64.'; return 1; }
+  [[ "$difficulty" =~ ^[0-3]$ ]] || { err 'Difficulty must be 0-3.'; return 1; }
+  [[ -x "$CONFIG_TOOL" ]] || { err 'Toolkit config helper is missing.'; return 1; }
+  "$CONFIG_TOOL" bots-set "$count" "$difficulty" "$last" || return 1
+  if [[ "$count" == 0 || "$recreate" == yes ]]; then
+    rcon 'bot_quota 0' >/dev/null || return 1
+    rcon 'bot_kick' >/dev/null || return 1
+  fi
+  rcon 'exec cs2_toolkit.cfg' >/dev/null || return 1
+  verify_convar bot_quota_mode normal || return 1
+  verify_convar bot_quota "$count" || return 1
+  verify_convar sv_auto_adjust_bot_difficulty 0 || return 1
+  verify_convar bot_difficulty "$difficulty" || return 1
+}
+
+bot_set_count() {
+  local count="$1" difficulty last
+  bot_saved_settings || return 1
+  bot_live_settings || return 1
+  difficulty="${BOT_SAVED_DIFFICULTY:-$BOT_LIVE_DIFFICULTY}"
+  last="$BOT_SAVED_LAST"
+  [[ "$count" != 0 ]] && last="$count"
+  bot_apply "$count" "$difficulty" "$last" || return 1
+  ok "Bot target: $count (normal mode)."
+}
+
+bot_add_many() {
+  local amount="$1" current target
+  [[ "$amount" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || { err 'Enter a number from 1 to 64.'; return 1; }
+  bot_live_settings || return 1
+  current="$(bot_count_for_control)"
+  target=$((current + amount))
+  (( target <= 64 )) || { err 'The bot target cannot exceed 64.'; return 1; }
+  bot_set_count "$target"
+}
+
+bot_enable() {
+  local target
+  bot_saved_settings || return 1
+  bot_live_settings || return 1
+  target="${BOT_SAVED_COUNT:-$(bot_count_for_control)}"
+  [[ "$target" =~ ^[0-9]+$ ]] || target=0
+  (( target > 0 )) || target="$BOT_SAVED_LAST"
+  bot_set_count "$target"
+}
+
+bot_difficulty_set() {
+  local difficulty="$1" count last
+  [[ "$difficulty" =~ ^[0-3]$ ]] || { err 'Difficulty: 0 easy, 1 normal, 2 hard, 3 expert.'; return 1; }
+  bot_saved_settings || return 1
+  bot_live_settings || return 1
+  count="${BOT_SAVED_COUNT:-$(bot_count_for_control)}"
+  last="$BOT_SAVED_LAST"
+  (( count > 0 )) && last="$count"
+  bot_apply "$count" "$difficulty" "$last" yes || return 1
+  ok "Bot difficulty: $difficulty. Existing bots were recreated at the new level."
+}
+
+bot_menu() {
+  local choice amount
+  while true; do
+    clear
+    echo -e "${bold}${CLR_BOTS}=== Bot Management ===${reset}"
+    if bot_live_settings; then
+      echo "Active: ${BOT_ACTIVE:-unknown} | Target: $BOT_LIVE_COUNT | Mode: $BOT_LIVE_MODE | Difficulty: $BOT_LIVE_DIFFICULTY"
+    else
+      warn 'Could not read live bot settings.'
+    fi
+    echo
+    echo '  1) Turn on bots / restore last count'
+    echo '  2) Turn off and kick all bots'
+    echo '  3) Add multiple bots'
+    echo '  4) Set exact bot count'
+    echo '  5) Change difficulty (recreates current bots)'
+    echo '  0) Back'
+    echo
+    read -rp 'Choose: ' choice || return 0
+    case "$choice" in
+      1) bot_enable || true ;;
+      2) bot_set_count 0 || true ;;
+      3) read -rp 'How many to add (1-64, blank=cancel): ' amount || return 0
+         [[ -z "$amount" ]] || bot_add_many "$amount" || true ;;
+      4) read -rp 'Exact bot count (0-64, blank=cancel): ' amount || return 0
+         [[ -z "$amount" ]] || bot_set_count "$amount" || true ;;
+      5) read -rp 'Difficulty (0 easy, 1 normal, 2 hard, 3 expert; blank=cancel): ' amount || return 0
+         [[ -z "$amount" ]] || bot_difficulty_set "$amount" || true ;;
+      0|'') return 0 ;;
+      *) warn 'Unknown option.' ;;
+    esac
+    echo; pause
+  done
 }
 
 verify_convar() {
@@ -1062,10 +1184,11 @@ update_toolkit_git() {
   fi
   info "Pulling latest toolkit from Git..."
   (cd "$repo" && git pull --rebase) || { err "git pull failed"; return 1; }
-  if [[ ! -f "$src" ]]; then
-    err "Admin script not found in repo: $src"
+  if [[ ! -f "$src" || ! -f "$repo/scripts/cs2-config.sh" ]]; then
+    err 'Admin or config helper is missing from the toolkit repo.'
     return 1
   fi
+  install -m 0755 "$repo/scripts/cs2-config.sh" "$CONFIG_TOOL" || { err "Config helper install failed"; return 1; }
   install -m 0755 "$src" "$self" || { err "Install failed"; return 1; }
   ok "Admin script updated from Git."
   echo "Reloading menu..."
@@ -1102,8 +1225,7 @@ banner() {
   echo -e "  ${CLR_MAPS}H)${reset} Home: Competitive MR12 + de_dust2"
   echo
   echo -e "${bold}${CLR_BOTS}[Bots]${reset}"
-  echo -e "  ${CLR_BOTS}b)${reset} Add bot      ${CLR_BOTS}n)${reset} Add bot (CT)   ${CLR_BOTS}m)${reset} Add bot (T)"
-  echo -e "  ${CLR_BOTS}k)${reset} Kick bots     ${CLR_BOTS}q)${reset} Set bot quota   ${CLR_BOTS}D)${reset} Set difficulty (0Ð)"
+  echo -e "  ${CLR_BOTS}b)${reset} Bot management (on/off, count, add many, difficulty)"
   echo
   echo -e "${bold}${CLR_ACTIONS}[Actions]${reset}"
   echo -e "  ${CLR_ACTIONS}s)${reset} Status       ${CLR_ACTIONS}y)${reset} Say message  ${CLR_ACTIONS}a)${reset} Kick ALL"
@@ -1150,12 +1272,7 @@ ui_loop() {
       H) restore_default || true ;;
 
       # Bots
-      b) add_bot auto || true ;;
-      n) add_bot ct   || true ;;
-      m) add_bot t    || true ;;
-      k) remove_bots  || true ;;
-      q) read -rp "Bot quota (blank=cancel): " N; [[ -z "$N" ]] && info "Cancelled." || { [[ "$N" =~ ^[0-9]+$ ]] && bot_quota "$N" || err "Invalid number"; } ;;
-      D|d) read -rp "Bot difficulty (0 easy, 1 normal, 2 hard, 3 expert; blank=cancel): " DV; [[ -z "$DV" ]] && info "Cancelled." || bot_difficulty_set "$DV" ;;
+      b) bot_menu; continue ;;
 
       # Actions
       s) status || true ;;
@@ -1200,6 +1317,11 @@ case "$cmd" in
   add-bot) add_bot "${1:-auto}" ;;
   remove-bots) remove_bots ;;
   bot-quota) bot_quota "${1:-0}" ;;
+  bot-on) bot_enable ;;
+  bot-off) bot_set_count 0 ;;
+  bots-add) bot_add_many "${1:-}" ;;
+  bot-difficulty) bot_difficulty_set "${1:-}" ;;
+  bot-menu) bot_menu ;;
   kick-all) kick_all ;;
   update) update_server ;;
   restart) restart_service ;;

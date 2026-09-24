@@ -6,6 +6,7 @@ CS2_DIR="${CS2_DIR:-$HOME/cs2-ds}"
 CFG_DIR="$CS2_DIR/game/csgo/cfg"
 STATE_DIR="$CS2_DIR/toolkit-config"
 STATE="$STATE_DIR/blocked-weapons.txt"
+BOTS_STATE="$STATE_DIR/bots.txt"
 GENERATED="$CFG_DIR/cs2_toolkit.cfg"
 HOOK='exec cs2_toolkit.cfg'
 
@@ -76,7 +77,7 @@ ensure_hook() {
 }
 
 sync_config() {
-  local list file
+  local list file bot_count bot_difficulty bot_last content
   mkdir -p "$CFG_DIR" "$STATE_DIR"
   chmod 700 "$STATE_DIR"
   [[ -f "$STATE" ]] || atomic_line "$STATE" ''
@@ -84,7 +85,19 @@ sync_config() {
   [[ "$(normalize_weapons "$list")" == "$list" ]] || {
     echo 'Invalid persisted weapons list' >&2; return 1;
   }
-  atomic_line "$GENERATED" "mp_items_prohibited \"$(weapon_indices "$list")\""
+  content="mp_items_prohibited \"$(weapon_indices "$list")\""
+  if [[ -f "$BOTS_STATE" ]]; then
+    read -r bot_count bot_difficulty bot_last < "$BOTS_STATE"
+    valid_bot_settings "$bot_count" "$bot_difficulty" "$bot_last" || {
+      echo 'Invalid persisted bot settings' >&2; return 1;
+    }
+    content+=$'\n'"bot_quota_mode normal"
+    content+=$'\n'"bot_join_after_player 0"
+    content+=$'\n'"sv_auto_adjust_bot_difficulty 0"
+    content+=$'\n'"bot_difficulty $bot_difficulty"
+    content+=$'\n'"bot_quota $bot_count"
+  fi
+  atomic_line "$GENERATED" "$content"
   ensure_hook "$CFG_DIR/cs2server.cfg"
   for file in \
     gamemode_competitive_server.cfg gamemode_casual_server.cfg \
@@ -93,6 +106,12 @@ sync_config() {
     gamemode_rush_server.cfg; do
     ensure_hook "$CFG_DIR/$file"
   done
+}
+
+valid_bot_settings() {
+  [[ "${1:-}" =~ ^(0|[1-9]|[1-5][0-9]|6[0-4])$ ]] &&
+    [[ "${2:-}" =~ ^[0-3]$ ]] &&
+    [[ "${3:-}" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]]
 }
 
 mkdir -p "$STATE_DIR"
@@ -112,5 +131,13 @@ case "${1:-}" in
   ids)
     [[ -f "$STATE" ]] && weapon_indices "$(head -n 1 "$STATE")" || true
     ;;
-  *) echo "Usage: $0 {sync|set LIST|show|ids}" >&2; exit 2 ;;
+  bots-set)
+    valid_bot_settings "${2:-}" "${3:-}" "${4:-}" || { echo 'Invalid bot settings' >&2; exit 2; }
+    atomic_line "$BOTS_STATE" "$2 $3 $4"
+    sync_config
+    ;;
+  bots-show)
+    [[ -f "$BOTS_STATE" ]] && head -n 1 "$BOTS_STATE" || true
+    ;;
+  *) echo "Usage: $0 {sync|set LIST|show|ids|bots-set COUNT DIFFICULTY LAST|bots-show}" >&2; exit 2 ;;
 esac

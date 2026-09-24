@@ -92,6 +92,16 @@ Looking for a reliable VPS or dedicated server for CS2?
   Dust II is one keypress: `H` in Map Hotkeys. From a shell, use
   `~/cs2-ds/cs2-admin.sh default`.
 
+  Press `b` for Bot Management. The submenu shows the live bot count, target,
+  quota mode, and difficulty. You can turn bots on, turn them off and kick
+  them, add several at once, set an exact target, or choose difficulty
+  (0 easy, 1 normal, 2 hard, 3 expert). Changing difficulty recreates existing
+  bots so the new setting takes effect and disables automatic difficulty
+  adjustment. The target is a bot count in `normal`
+  quota mode; actual bots can be lower if the current game mode has no free
+  player slots. The chosen count and difficulty persist across map changes and
+  restarts. Turning bots on after turning them off restores the last count.
+
   Run `~/cs2-ds/cs2-admin.sh health` for a read-only service, RCON, port,
   build and file-permission check. Steam/VAC login is reported as unknown when
   the game does not expose a reliable status signal.
@@ -112,10 +122,12 @@ toolkit source for it. Existing duplicate GSLT lines are removed during
 reinstallation after a restricted backup is made.
 
 The weapon menu saves the chosen list in `~/cs2-ds/toolkit-config/blocked-weapons.txt`.
+The bot menu saves its explicit choices in `~/cs2-ds/toolkit-config/bots.txt`.
 The toolkit generates `game/csgo/cfg/cs2_toolkit.cfg` and includes it from
 `cs2server.cfg` and the supported `gamemode_*_server.cfg` override files.
 These includes are recreated at server start. Valve's `gamemode_*.cfg` base
-files are never edited by the toolkit. The menu's Fun settings are temporary;
+files are never edited by the toolkit. Until you use the bot menu, each mode's
+existing bot defaults still apply. The menu's Fun settings are temporary;
 the join password is persistent in `.update.env` and `cs2server.cfg`.
 
 Mode switches set `game_type`, `game_mode`, `sv_game_mode_flags` and
