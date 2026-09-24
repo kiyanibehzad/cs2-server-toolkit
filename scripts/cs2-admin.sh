@@ -484,6 +484,8 @@ apply_mode_and_reload() {
   ok "Mode applied: $mode"
 }
 
+restore_default() { apply_mode_and_reload comp_mr12 de_dust2; }
+
 armsrace_map() {
   local map="$1"
   case "$map" in
@@ -1097,6 +1099,7 @@ banner() {
   echo -e "  ${CLR_MAPS}p)${reset} List installed maps"
   echo -e "  ${CLR_MAPS}A)${reset} Arms Race maps (Pool Day / Shoots / Baggage + preset)"
   echo -e "  ${CLR_MAPS}R)${reset} Rush map (rush_001 + preset)"
+  echo -e "  ${CLR_MAPS}H)${reset} Home: Competitive MR12 + de_dust2"
   echo
   echo -e "${bold}${CLR_BOTS}[Bots]${reset}"
   echo -e "  ${CLR_BOTS}b)${reset} Add bot      ${CLR_BOTS}n)${reset} Add bot (CT)   ${CLR_BOTS}m)${reset} Add bot (T)"
@@ -1144,6 +1147,7 @@ ui_loop() {
       p) list_installed_maps || true ;;
       A) armsrace_map_menu || true ;;
       R) rush_map_menu || true ;;
+      H) restore_default || true ;;
 
       # Bots
       b) add_bot auto || true ;;
@@ -1204,6 +1208,7 @@ case "$cmd" in
   change-map) change_map "${1:-de_dust2}" ;;
   armsrace-map) armsrace_map "${1:-}" ;;
   rush-map) rush_map "${1:-}" ;;
+  default) restore_default ;;
   mode) apply_mode_and_reload "${1:-}" "${2:-}" ;;
   rcon) rcon "$@" ;;
   list-banned) list_banned ;;

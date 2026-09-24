@@ -130,6 +130,23 @@ touch "$TEST_ROOT/game/game/csgo/maps/rush_001.vpk"
 [[ "$(cat "$TEST_ROOT/game_mode")" == 1 ]]
 echo 'PASS rush_to_competitive_with_map'
 
+"$REPO/scripts/cs2-admin.sh" mode rush rush_001 > "$TEST_ROOT/output" 2>&1
+: > "$EVENTS"
+TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'H\ne\n' > "$TEST_ROOT/output" 2>&1
+grep -Fq 'H)' "$TEST_ROOT/output"
+grep -Fxq 'game_mode 1' "$EVENTS"
+grep -Fxq 'changelevel de_dust2' "$EVENTS"
+[[ "$(cat "$MAP_STATE")" == de_dust2 ]]
+[[ "$(cat "$TEST_ROOT/game_mode")" == 1 ]]
+echo 'PASS home_hotkey_restores_default'
+
+"$REPO/scripts/cs2-admin.sh" mode rush rush_001 > "$TEST_ROOT/output" 2>&1
+: > "$EVENTS"
+"$REPO/scripts/cs2-admin.sh" default > "$TEST_ROOT/output" 2>&1
+grep -Fxq 'changelevel de_dust2' "$EVENTS"
+[[ "$(cat "$TEST_ROOT/game_mode")" == 1 ]]
+echo 'PASS default_cli_restores_default'
+
 "$REPO/scripts/cs2-admin.sh" mode retakes > "$TEST_ROOT/output" 2>&1
 [[ "$(cat "$TEST_ROOT/sv_skirmish_id")" == 12 ]]
 "$REPO/scripts/cs2-admin.sh" mode comp_mr12 > "$TEST_ROOT/output" 2>&1

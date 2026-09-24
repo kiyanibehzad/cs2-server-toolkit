@@ -89,7 +89,8 @@ Looking for a reliable VPS or dedicated server for CS2?
   one action. Valve's Rush uses one map file with arenas selected within the
   match. The option is available when the map is installed. From a shell, use
   `~/cs2-ds/cs2-admin.sh rush-map rush_001`. Switching back to Competitive on
-  Dust II can be done with `~/cs2-ds/cs2-admin.sh mode comp_mr12 de_dust2`.
+  Dust II is one keypress: `H` in Map Hotkeys. From a shell, use
+  `~/cs2-ds/cs2-admin.sh default`.
 
   Run `~/cs2-ds/cs2-admin.sh health` for a read-only service, RCON, port,
   build and file-permission check. Steam/VAC login is reported as unknown when
