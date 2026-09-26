@@ -10,6 +10,9 @@ CONF="$BASE_DIR/.update.env"
 # shellcheck disable=SC1090
 [[ -f "$CONF" ]] && . "$CONF"
 "$BASE_DIR/cs2-config.sh" sync || exit 1
+if [[ -x "$BASE_DIR/cs2-ingame-menu.sh" ]]; then
+  "$BASE_DIR/cs2-ingame-menu.sh" repair-loader || echo '[cs2-start] In-game menu loader repair failed; check the plugin installation.' >&2
+fi
 
 IP="${BIND_IP:-${HOST_IP:-0.0.0.0}}"
 PORT="${PORT:-27015}"

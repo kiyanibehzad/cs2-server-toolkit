@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "Cs2ToolkitMenu/1.0.0": {
+        "runtime": {
+          "Cs2ToolkitMenu.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Cs2ToolkitMenu/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

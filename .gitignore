@@ -7,3 +7,5 @@ backups/
 *.log
 *.swp
 .DS_Store
+plugins/**/bin/
+plugins/**/obj/

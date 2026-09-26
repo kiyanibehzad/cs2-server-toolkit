@@ -84,7 +84,7 @@ done
 
 if command -v apt-get >/dev/null 2>&1; then
   sudo apt-get update
-  sudo apt-get install -y curl ca-certificates lib32gcc-s1 git util-linux python3
+  sudo apt-get install -y curl ca-certificates lib32gcc-s1 git util-linux python3 unzip
 fi
 
 if [[ ! -x "$CS2_HOME/steamcmd/steamcmd.sh" ]]; then
@@ -106,6 +106,11 @@ install -m 0755 "$REPO_DIR/scripts/cs2-rcon.py" "$CS2_DIR/cs2-rcon.py"
 install -m 0755 "$REPO_DIR/scripts/cs2-buildid.py" "$CS2_DIR/cs2-buildid.py"
 install -m 0755 "$REPO_DIR/scripts/cs2-health.sh" "$CS2_DIR/cs2-health.sh"
 install -m 0755 "$REPO_DIR/scripts/cs2-safe-update.sh" "$CS2_DIR/cs2-safe-update.sh"
+install -m 0755 "$REPO_DIR/scripts/cs2-ingame-menu.sh" "$CS2_DIR/cs2-ingame-menu.sh"
+install -m 0755 "$REPO_DIR/scripts/cs2-ingame-config.py" "$CS2_DIR/cs2-ingame-config.py"
+mkdir -p "$CS2_DIR/toolkit-assets"
+install -m 0644 "$REPO_DIR/plugins/Cs2ToolkitMenu/dist/Cs2ToolkitMenu.dll" "$CS2_DIR/toolkit-assets/Cs2ToolkitMenu.dll"
+install -m 0644 "$REPO_DIR/plugins/Cs2ToolkitMenu/dist/Cs2ToolkitMenu.deps.json" "$CS2_DIR/toolkit-assets/Cs2ToolkitMenu.deps.json"
 install -m 0755 "$REPO_DIR/scripts/update-cs2.sh" "$CS2_DIR/update-cs2.sh"
 install -m 0755 "$REPO_DIR/scripts/start.sh" "$CS2_DIR/start.sh"
 if [[ -e "$CS2_HOME/update-cs2.sh" || -L "$CS2_HOME/update-cs2.sh" ]]; then
@@ -185,3 +190,12 @@ ln -sfn "$CS2_DIR/cs2-admin.sh" "$CS2_HOME/admin-cs2"
 
 echo "Installation complete. Server data and existing settings were preserved."
 echo "Admin menu: $CS2_HOME/admin-cs2"
+if [[ "${WITH_INGAME_MENU:-ask}" == 1 ]]; then
+  "$CS2_DIR/cs2-ingame-menu.sh" install "${INGAME_ADMIN_STEAMID:-}" "${INGAME_ADMIN_NAME:-}"
+elif [[ "${WITH_INGAME_MENU:-ask}" == ask && -t 0 && ! -f "$CS2_DIR/toolkit-config/ingame-menu.enabled" ]]; then
+  read -r -p 'Install optional in-game admin menu now? [y/N]: ' input
+  if [[ "$input" == [Yy] || "$input" == [Yy][Ee][Ss] ]]; then
+    read -r -p 'Your SteamID64 (17 digits): ' input
+    "$CS2_DIR/cs2-ingame-menu.sh" install "$input"
+  fi
+fi

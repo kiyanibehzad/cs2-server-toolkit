@@ -594,6 +594,42 @@ voice_menu() {
   done
 }
 
+ingame_menu() {
+  local choice steam_id name
+  local helper="$CS2_DIR/cs2-ingame-menu.sh"
+  [[ -x "$helper" ]] || { err 'In-game menu installer is missing. Reinstall the toolkit.'; return 1; }
+  while true; do
+    echo
+    echo -e "${bold}${CLR_TOOLS}=== In-game Admin Menu ===${reset}"
+    echo '  1) Install or update the in-game menu'
+    echo '  2) Show installation status'
+    echo '  3) List admins'
+    echo '  4) Add admin by SteamID64'
+    echo '  5) Remove admin by SteamID64'
+    echo '  0) Back'
+    read -rp 'Choose: ' choice || return 0
+    case "$choice" in
+      1)
+        read -rp 'First admin SteamID64 (blank to keep existing admins): ' steam_id || return 0
+        "$helper" install "$steam_id" || true
+        ;;
+      2) "$helper" status || true ;;
+      3) "$helper" list-admins || true ;;
+      4)
+        read -rp 'SteamID64: ' steam_id || return 0
+        read -rp 'Admin label (blank for automatic): ' name || return 0
+        "$helper" add-admin "$steam_id" "$name" || true
+        ;;
+      5)
+        read -rp 'SteamID64 to remove: ' steam_id || return 0
+        "$helper" remove-admin "$steam_id" || true
+        ;;
+      0|'') return 0 ;;
+      *) err 'Invalid choice.' ;;
+    esac
+  done
+}
+
 # Common settings: no autobalance or team limits. Rush keeps Valve's fill bots.
 apply_common_team_settings() {
   local mode="${1:-}"
@@ -1320,6 +1356,7 @@ banner() {
   echo -e "  ${CLR_TOOLS}u)${reset} Force update (if empty)  ${CLR_TOOLS}r)${reset} Restart svc  ${CLR_TOOLS}L)${reset} Live logs"
   echo -e "  ${CLR_TOOLS}x)${reset} Backup cfg   ${CLR_TOOLS}c)${reset} Custom RCON"
   echo -e "  ${CLR_TOOLS}T)${reset} Safe update check  ${CLR_TOOLS}t)${reset} Update timer status  ${CLR_TOOLS}G)${reset} Update admin menu (git)"
+  echo -e "  ${CLR_TOOLS}K)${reset} In-game admin menu: install / manage admins"
   echo -e "  ${CLR_TOOLS}h)${reset} Health check"
   echo
   echo -e "${bold}${cyan}[Access]${reset}"
@@ -1376,6 +1413,7 @@ ui_loop() {
       t) show_update_timer || true ;;
       h) "$CS2_DIR/cs2-health.sh" || true ;;
       G) update_toolkit_git || true ;;
+      K) ingame_menu; continue ;;
 
       # Access / Bans / Modes / Weapons / Fun
       J|j) join_password_menu ;;
@@ -1412,6 +1450,11 @@ case "$cmd" in
   voice-mode) voice_mode "${1:-}" ;;
   voice-status) voice_status ;;
   voice-menu) voice_menu ;;
+  ingame-menu) ingame_menu ;;
+  ingame-install) "$CS2_DIR/cs2-ingame-menu.sh" install "${1:-}" "${2:-}" ;;
+  ingame-status) "$CS2_DIR/cs2-ingame-menu.sh" status ;;
+  ingame-admin-add) "$CS2_DIR/cs2-ingame-menu.sh" add-admin "${1:-}" "${2:-}" ;;
+  ingame-admin-remove) "$CS2_DIR/cs2-ingame-menu.sh" remove-admin "${1:-}" ;;
   kick-all) kick_all ;;
   update) update_server ;;
   restart) restart_service ;;
@@ -1432,6 +1475,10 @@ case "$cmd" in
   weapons-show) weapons_block_show ;;
   weapons-set) weapons_block_set "${1:-}" ;;
   weapons-clear) weapons_block_clear ;;
+  fun-chickens) fun_chickens_add "${1:-1}" ;;
+  fun-chickens-clear) fun_chickens_clear ;;
+  fun-gravity) fun_gravity_set "${1:-}" ;;
+  fun-speed) fun_speed_set "${1:-}" ;;
   update-toolkit) update_toolkit_git ;;
   *) ui_loop ;;
 esac

@@ -7,6 +7,7 @@
 Includes:
 - Automatic installation and player-safe updates (via `systemd --user` timers)
 - Interactive admin menu with Arms Race and Rush map/mode presets, plus one-key return to Competitive on Dust II
+- Optional in-game admin menu for maps, modes, bots, voice, weapons, and fun controls
 - Persistent bot controls (on/off, kick, add multiple, exact count, difficulty), live voice controls, and weapon restrictions
 - Bans, join password, fun settings, logs, restart, and health check
 - User-level `systemd` service (auto-start after reboot with linger)
@@ -60,6 +61,10 @@ Looking for a reliable VPS or dedicated server for CS2?
 
    Run the installer as the game user, not root. Running it again refreshes the
    toolkit files and systemd units while keeping existing game data and settings.
+   At the end, choose whether to install the optional in-game menu and enter
+   your own SteamID64 as its first admin. The installer restarts an active game
+   server once to load the plugin. For unattended setup, use
+   `WITH_INGAME_MENU=1 INGAME_ADMIN_STEAMID=7656119XXXXXXXXXX ./install.sh`.
    To update the game itself, use the updater below.
    If an older `~/update-cs2.sh` exists, the installer saves it with a
    `.legacy-<timestamp>` suffix before replacing it with the safe entry point.
@@ -78,6 +83,26 @@ Looking for a reliable VPS or dedicated server for CS2?
   ```bash
   ~/admin-cs2
   ```
+
+  Press `K` to install or update the optional in-game menu and manage its
+  SteamID64 admin list. Once installed, authorized players can type `!toolkit`
+  or `!admin` in game. The menu provides the same map and mode presets,
+  one-click return to Competitive on Dust II, bot targets and difficulty,
+  temporary voice controls, weapon restrictions, chickens, gravity, and speed.
+  Server maintenance, credentials, bans, and arbitrary RCON commands stay in
+  the terminal toolkit. Additional admins can be added with
+  `~/cs2-ds/cs2-ingame-menu.sh add-admin STEAMID64 Name` and removed with
+  `~/cs2-ds/cs2-ingame-menu.sh remove-admin STEAMID64`. The plugin grants only
+  its own `@cs2toolkit/admin` permission and preserves other CounterStrikeSharp
+  admin permissions. Check installation with
+  `~/cs2-ds/cs2-ingame-menu.sh status`.
+
+  This option installs pinned, checksum-verified [Metamod:Source](https://wiki.alliedmods.net/Installing_SourceMM)
+  and [CounterStrikeSharp](https://docs.cssharp.dev/docs/guides/getting-started.html)
+  releases. It adds Metamod as the first game search path in `gameinfo.gi`;
+  the toolkit repairs that line on server start because a Steam update may
+  replace the file. Existing `admins.json` entries and `metaplugins.ini` are
+  preserved. The menu plugin source is in `plugins/Cs2ToolkitMenu`.
 
   Press `A` to choose an Arms Race map: Pool Day, Shoots, or Baggage.
   This applies the Arms Race preset and changes the map in one action. The menu
