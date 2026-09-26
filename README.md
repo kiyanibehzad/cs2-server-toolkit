@@ -142,6 +142,18 @@ Looking for a reliable VPS or dedicated server for CS2?
   build and file-permission check. Steam/VAC login is reported as unknown when
   the game does not expose a reliable status signal.
 
+- **Try the terminal admin menu v2 beta**
+  ```bash
+  ~/cs2-server-toolkit/scripts/cs2-admin-v2.sh
+  ```
+
+  This separate script has a shorter main screen and grouped menus. It uses
+  the same server operations and settings as the regular admin menu, while
+  `~/admin-cs2` continues to open the regular version. Press Enter to return
+  from a beta submenu. Under Server tools, option 7 updates only the beta
+  script from Git. Run `~/cs2-server-toolkit/scripts/cs2-admin-v2.sh preview`
+  to print the main screen once without opening the interactive menu.
+
 - **Check logs**
   ```bash
   journalctl --user -u cs2-ds -f
