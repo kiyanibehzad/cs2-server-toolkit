@@ -1325,7 +1325,7 @@ banner() {
   echo -e "${bold}${CLR_TITLE}=== CS2 Quick Admin ===${reset}"
   echo
   if [[ -n "$jp" ]]; then
-    echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT} (join password required)"
+    echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT}; password ******** (hidden)"
   else
     echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT}"
   fi
