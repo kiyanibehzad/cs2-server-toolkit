@@ -7,7 +7,7 @@
 Includes:
 - Automatic installation and player-safe updates (via `systemd --user` timers)
 - Interactive admin menu with Arms Race and Rush map/mode presets, plus one-key return to Competitive on Dust II
-- Persistent bot controls (on/off, kick, add multiple, exact count, difficulty) and weapon restrictions
+- Persistent bot controls (on/off, kick, add multiple, exact count, difficulty), live voice controls, and weapon restrictions
 - Bans, join password, fun settings, logs, restart, and health check
 - User-level `systemd` service (auto-start after reboot with linger)
 - One safe update path for timers and manual updates
@@ -104,6 +104,15 @@ Looking for a reliable VPS or dedicated server for CS2?
   player slots. The chosen count and difficulty persist across map changes and
   restarts. Turning bots on after turning them off restores the last count.
 
+  Press `v` for Live Voice. Choose team only, teammates with dead players,
+  dead players across both teams, both teams together (T + CT), or everyone
+  including spectators. The T + CT option connects the two playing teams
+  without enabling the separate spectator option. Changes apply immediately
+  through RCON; no restart is needed. From a shell, use
+  `~/cs2-ds/cs2-admin.sh voice-mode both-teams` or `voice-status`.
+  CS2's dead-player controls affect text chat as well as voice. Voice choices
+  are temporary and game mode or server restarts may reset them.
+
   Run `~/cs2-ds/cs2-admin.sh health` for a read-only service, RCON, port,
   build and file-permission check. Steam/VAC login is reported as unknown when
   the game does not expose a reliable status signal.
@@ -129,7 +138,7 @@ The toolkit generates `game/csgo/cfg/cs2_toolkit.cfg` and includes it from
 `cs2server.cfg` and the supported `gamemode_*_server.cfg` override files.
 These includes are recreated at server start. Valve's `gamemode_*.cfg` base
 files are never edited by the toolkit. Until you use the bot menu, each mode's
-existing bot defaults still apply. The menu's Fun settings are temporary;
+existing bot defaults still apply. The menu's Fun and Voice settings are temporary;
 the join password is persistent in `.update.env` and `cs2server.cfg`.
 
 Mode switches set `game_type`, `game_mode`, `sv_game_mode_flags` and

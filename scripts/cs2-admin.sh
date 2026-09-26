@@ -1,5 +1,5 @@
 #!/bin/bash
-# CS2 Admin Toolkit (maps, admin ops, bans, modes, weapons block, chickens)
+# CS2 Admin Toolkit (maps, admin ops, bans, modes, bots, voice, weapons, fun)
 # Reads config from /home/<user>/cs2-ds/.update.env if present.
 
 set -uo pipefail
@@ -68,6 +68,7 @@ CLR_BANS="$magenta"      # Ban management (magenta)
 CLR_MODES="$red"         # Game modes (red)
 CLR_WEAPONS="$white"     # Weapons blocking (white)
 CLR_FUN="$cyan"          # Fun section (chickens etc.) (cyan)
+CLR_VOICE="$green"       # Live voice routing
 CLR_EXIT="$red"          # Exit (red)
 CLR_TITLE="$magenta"     # Title/header (magenta)
 
@@ -509,6 +510,88 @@ verify_convar() {
     err "$name expected $expected, got ${actual:-no response}"
     return 1
   fi
+}
+
+# ---------- LIVE VOICE ----------
+# These are live server cvars only. No toolkit cfg or mode defaults are edited.
+VOICE_NAMES=(sv_full_alltalk sv_alltalk sv_deadtalk sv_talk_enemy_living sv_talk_enemy_dead sv_auto_full_alltalk_during_warmup_half_end)
+voice_read() {
+  local name value
+  VOICE_VALUES=()
+  for name in "${VOICE_NAMES[@]}"; do
+    value="$(convar_value "$name")" || return 1
+    case "$value" in true|1) value=1 ;; false|0) value=0 ;; *) err "Could not read $name"; return 1 ;; esac
+    VOICE_VALUES+=("$value")
+  done
+}
+
+voice_status() {
+  voice_read || return 1
+  local mode='Custom'
+  case "${VOICE_VALUES[*]}" in
+    '0 0 0 0 0 0') mode='Team only' ;;
+    '0 0 1 0 0 0') mode='Team together' ;;
+    '0 0 0 0 1 0') mode='Dead across teams' ;;
+    '0 1 1 0 0 0') mode='Both teams' ;;
+    '1 1 1 0 0 0') mode='Everyone, including spectators' ;;
+  esac
+  printf 'Current: %s\n' "$mode"
+  printf 'Full/all teams: %s/%s | Dead to living: %s | Enemy living/dead: %s/%s | Auto warmup: %s\n' \
+    "${VOICE_VALUES[0]}" "${VOICE_VALUES[1]}" "${VOICE_VALUES[2]}" \
+    "${VOICE_VALUES[3]}" "${VOICE_VALUES[4]}" "${VOICE_VALUES[5]}"
+}
+
+voice_mode() {
+  local mode="${1:-}" i failed=0
+  local -a desired previous
+  case "$mode" in
+    team)      desired=(0 0 0 0 0 0) ;;
+    team-dead) desired=(0 0 1 0 0 0) ;;
+    dead-all)  desired=(0 0 0 0 1 0) ;;
+    both-teams) desired=(0 1 1 0 0 0) ;;
+    all)       desired=(1 1 1 0 0 0) ;;
+    *) err 'Voice mode must be team, team-dead, dead-all, both-teams, or all.'; return 2 ;;
+  esac
+  voice_read || { err 'Could not read the current voice settings.'; return 1; }
+  previous=("${VOICE_VALUES[@]}")
+  for i in "${!VOICE_NAMES[@]}"; do
+    [[ "${previous[i]}" == "${desired[i]}" ]] && continue
+    rcon "${VOICE_NAMES[i]} ${desired[i]}" >/dev/null || { failed=1; break; }
+    verify_convar "${VOICE_NAMES[i]}" "${desired[i]}" || { failed=1; break; }
+  done
+  if ((failed)); then
+    warn 'Voice change failed; restoring the previous values.'
+    for i in "${!VOICE_NAMES[@]}"; do
+      rcon "${VOICE_NAMES[i]} ${previous[i]}" >/dev/null || warn "Could not restore ${VOICE_NAMES[i]}"
+    done
+    return 1
+  fi
+  ok "Voice mode: $mode (live, no restart)."
+}
+
+voice_menu() {
+  local choice
+  while true; do
+    echo
+    echo -e "${bold}${CLR_VOICE}=== Live Voice ===${reset}"
+    voice_status || warn 'Live voice settings unavailable.'
+    echo '  1) Team only: living and dead separated'
+    echo '  2) Team together: dead can speak to living teammates'
+    echo '  3) Dead players across both teams; living stay team-only'
+    echo '  4) Both teams together (T + CT)'
+    echo '  5) Everyone together, including spectators'
+    echo '  0) Back'
+    read -rp 'Choose: ' choice || return 0
+    case "$choice" in
+      1) voice_mode team || true ;;
+      2) voice_mode team-dead || true ;;
+      3) voice_mode dead-all || true ;;
+      4) voice_mode both-teams || true ;;
+      5) voice_mode all || true ;;
+      0|"") return 0 ;;
+      *) err 'Invalid choice.' ;;
+    esac
+  done
 }
 
 # Common settings: no autobalance or team limits. Rush keeps Valve's fill bots.
@@ -1227,6 +1310,9 @@ banner() {
   echo -e "${bold}${CLR_BOTS}[Bots]${reset}"
   echo -e "  ${CLR_BOTS}b)${reset} Bot management (on/off, count, add many, difficulty)"
   echo
+  echo -e "${bold}${CLR_VOICE}[Voice]${reset}"
+  echo -e "  ${CLR_VOICE}v)${reset} Live voice control (teams / dead / everyone)"
+  echo
   echo -e "${bold}${CLR_ACTIONS}[Actions]${reset}"
   echo -e "  ${CLR_ACTIONS}s)${reset} Status       ${CLR_ACTIONS}y)${reset} Say message  ${CLR_ACTIONS}a)${reset} Kick ALL"
   echo
@@ -1273,6 +1359,7 @@ ui_loop() {
 
       # Bots
       b) bot_menu; continue ;;
+      v) voice_menu; continue ;;
 
       # Actions
       s) status || true ;;
@@ -1322,6 +1409,9 @@ case "$cmd" in
   bots-add) bot_add_many "${1:-}" ;;
   bot-difficulty) bot_difficulty_set "${1:-}" ;;
   bot-menu) bot_menu ;;
+  voice-mode) voice_mode "${1:-}" ;;
+  voice-status) voice_status ;;
+  voice-menu) voice_menu ;;
   kick-all) kick_all ;;
   update) update_server ;;
   restart) restart_service ;;
