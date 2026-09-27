@@ -8,6 +8,7 @@ Includes:
 - Automatic installation and player-safe updates (via `systemd --user` timers)
 - Interactive admin menu with Arms Race and Rush map/mode presets, plus one-key return to Competitive on Dust II
 - Optional in-game admin menu for maps, modes, bots, voice, weapons, and fun controls
+- Separate V2 beta of the in-game admin menu with mouse-clickable controls
 - Persistent bot controls (on/off, kick, add multiple, exact count, difficulty), live voice controls, and weapon restrictions
 - Bans, join password, fun settings, logs, restart, and health check
 - User-level `systemd` service (auto-start after reboot with linger)
@@ -96,6 +97,12 @@ Looking for a reliable VPS or dedicated server for CS2?
   its own `@cs2toolkit/admin` permission and preserves other CounterStrikeSharp
   admin permissions. Check installation with
   `~/cs2-ds/cs2-ingame-menu.sh status`.
+
+  A separate [mouse-driven V2 beta](plugins/Cs2ToolkitMenuV2/README.md) is
+  available for one-client testing. It uses CS2's new `custom_hud_layout`,
+  opens with `!adminv2`, and leaves the regular `!admin` menu intact. The V2
+  server plugin and client layout have separate build and test steps; follow
+  the beta guide before installing it on a server.
 
   This option installs pinned, checksum-verified [Metamod:Source](https://wiki.alliedmods.net/Installing_SourceMM)
   and [CounterStrikeSharp](https://docs.cssharp.dev/docs/guides/getting-started.html)

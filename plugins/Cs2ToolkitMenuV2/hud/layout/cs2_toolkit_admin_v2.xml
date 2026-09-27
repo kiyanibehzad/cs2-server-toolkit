@@ -1,0 +1,34 @@
+<root>
+  <styles>
+    <include src="s2r://panorama/styles/custom_game/cs2_toolkit_admin_v2.vcss_c" />
+  </styles>
+  <Panel class="v2-screen" hittest="false">
+    <Button id="v2_dim" class="v2-dim" />
+    <Panel id="v2_window" class="v2-window" hittest="true">
+      <Panel class="v2-heading">
+        <Panel class="v2-heading-text">
+          <Label class="v2-kicker" text="CS2 SERVER TOOLKIT" />
+          <Label id="v2_title" class="v2-title" text="{s:text}" />
+        </Panel>
+        <Button id="v2_close" class="v2-close"><Label text="X" /></Button>
+      </Panel>
+      <Panel class="v2-rows">
+        <Button id="v2_row_0" class="v2-row"><Label id="v2_row_0_text" class="v2-row-text" text="{s:text}" /></Button>
+        <Button id="v2_row_1" class="v2-row"><Label id="v2_row_1_text" class="v2-row-text" text="{s:text}" /></Button>
+        <Button id="v2_row_2" class="v2-row"><Label id="v2_row_2_text" class="v2-row-text" text="{s:text}" /></Button>
+        <Button id="v2_row_3" class="v2-row"><Label id="v2_row_3_text" class="v2-row-text" text="{s:text}" /></Button>
+        <Button id="v2_row_4" class="v2-row"><Label id="v2_row_4_text" class="v2-row-text" text="{s:text}" /></Button>
+        <Button id="v2_row_5" class="v2-row"><Label id="v2_row_5_text" class="v2-row-text" text="{s:text}" /></Button>
+        <Button id="v2_row_6" class="v2-row"><Label id="v2_row_6_text" class="v2-row-text" text="{s:text}" /></Button>
+        <Button id="v2_row_7" class="v2-row"><Label id="v2_row_7_text" class="v2-row-text" text="{s:text}" /></Button>
+      </Panel>
+      <Panel class="v2-nav">
+        <Button id="v2_back" class="v2-nav-button"><Label text="BACK" /></Button>
+        <Button id="v2_prev" class="v2-nav-button"><Label text="PREV" /></Button>
+        <Label id="v2_page" class="v2-page" text="{s:text}" />
+        <Button id="v2_next" class="v2-nav-button"><Label text="NEXT" /></Button>
+      </Panel>
+      <Label id="v2_status" class="v2-status" text="{s:text}" />
+    </Panel>
+  </Panel>
+</root>
