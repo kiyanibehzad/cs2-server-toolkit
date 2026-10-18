@@ -82,6 +82,8 @@ pause() { read -rp "$(echo -e "${bold}${blue}Press Enter to continue...${reset} 
 require_cmd() { command -v "$1" >/dev/null 2>&1 || { err "'$1' is not installed"; return 1; }; }
 RCON_CLIENT="${RCON_CLIENT:-$CS2_DIR/cs2-rcon.py}"
 CONFIG_TOOL="${CONFIG_TOOL:-$CS2_DIR/cs2-config.sh}"
+WORKSHOP_TOOL="${WORKSHOP_TOOL:-$CS2_DIR/cs2-workshop.py}"
+WORKSHOP_ACTIVE="$CS2_DIR/toolkit-config/workshop-active.txt"
 rcon() {
   local output result=0
   [[ -n "$RCON_PASS" ]] || { err "RCON password is missing"; return 1; }
@@ -213,6 +215,7 @@ change_map() {
     sleep 0.5
     cur="$(current_map)"
     if [[ "$cur" == "$map" ]]; then
+      rm -f "$WORKSHOP_ACTIVE"
       ok "Map changed to ${map}."
       return 0
     fi
@@ -777,6 +780,16 @@ apply_mode_rules() {
   done
   apply_common_team_settings "$mode" || return 1
   rcon 'exec cs2_toolkit.cfg' >/dev/null || return 1
+  if [[ "$mode" == comp_mr12 ]]; then
+    # Return from AWP/Scout to the normal Competitive equipment rules.
+    rcon 'mp_ct_default_primary ""' >/dev/null || return 1
+    rcon 'mp_t_default_primary ""' >/dev/null || return 1
+    rcon 'mp_ct_default_secondary weapon_hkp2000' >/dev/null || return 1
+    rcon 'mp_t_default_secondary weapon_glock' >/dev/null || return 1
+    rcon 'mp_buytime 20' >/dev/null || return 1
+    rcon 'mp_free_armor 0' >/dev/null || return 1
+    rcon 'mp_weapons_allow_map_placed 1' >/dev/null || return 1
+  fi
   verify_convar game_type "$MODE_TYPE" || return 1
   verify_convar game_mode "$MODE_GAME" || return 1
   verify_convar sv_skirmish_id "$MODE_SKIRMISH" || return 1
@@ -807,6 +820,125 @@ apply_mode_and_reload() {
 }
 
 restore_default() { apply_mode_and_reload comp_mr12 de_dust2; }
+
+# Steam does not expose a personal subscription list to a community server.
+# The public collection API gives us a safe, key-free catalog instead.
+workshop_tool() {
+  [[ -x "$WORKSHOP_TOOL" ]] || { err "Workshop helper is missing: $WORKSHOP_TOOL"; return 1; }
+  "$WORKSHOP_TOOL" "$@"
+}
+
+workshop_profile_apply() {
+  local profile="$1" weapon command
+  case "$profile" in
+    competitive) rcon 'mp_restartgame 1' >/dev/null; return $? ;;
+    awp) weapon=weapon_awp ;;
+    scout) weapon=weapon_ssg08 ;;
+    *) err "Unknown Workshop preset: $profile"; return 1 ;;
+  esac
+  local -a commands=(
+    'mp_items_prohibited ""'
+    'mp_ct_default_secondary ""'
+    'mp_t_default_secondary ""'
+    "mp_ct_default_primary $weapon"
+    "mp_t_default_primary $weapon"
+    'mp_buy_anywhere 0'
+    'mp_buy_anywhere_warmup 0'
+    'mp_buytime 0'
+    'mp_free_armor 1'
+    'mp_weapons_allow_map_placed 0'
+    'mp_restartgame 1'
+  )
+  for command in "${commands[@]}"; do
+    rcon "$command" >/dev/null || { err "Workshop preset failed at: $command"; return 1; }
+  done
+  verify_convar mp_ct_default_primary "$weapon" || return 1
+  verify_convar mp_t_default_primary "$weapon" || return 1
+  verify_convar mp_buytime 0 || return 1
+}
+
+workshop_play() {
+  local id="${1:-}" requested="${2:-}" record saved profile title before after output tries active_id='' active_map=''
+  [[ "$id" =~ ^[1-9][0-9]{0,19}$ ]] || { err 'Select a map from the configured collection.'; return 1; }
+  record="$(workshop_tool get "$id")" || return 1
+  IFS=$'\t' read -r _ saved title <<< "$record"
+  profile="${requested:-$saved}"
+  case "$profile" in competitive|awp|scout) ;; *) err 'Preset must be competitive, awp, or scout.'; return 1 ;; esac
+  ensure_server_running || return 1
+  [[ -x "$CONFIG_TOOL" ]] || { err 'Toolkit config helper is missing.'; return 1; }
+  "$CONFIG_TOOL" sync || return 1
+  before="$(current_map)"
+  [[ -f "$WORKSHOP_ACTIVE" ]] && read -r active_id active_map < "$WORKSHOP_ACTIVE"
+  if [[ "$active_id" == "$id" && -n "$before" && "$active_map" == "$before" ]]; then
+    after="$before"
+  else
+    mode_identity comp_mr12 || return 1
+    info "Loading Workshop map: $title ($id). This can take a while on first use."
+    # A map load can close the RCON socket before it sends its reply.
+    if ! output="$(rcon "host_workshop_map $id" 2>&1)"; then
+      if printf '%s\n' "$output" | grep -Eqi 'Unknown (command|variable)|couldn.t exec|failed to execute'; then
+        err "$output"
+        return 1
+      fi
+      warn 'RCON disconnected during map load; checking the active map.'
+    fi
+    [[ -z "$output" ]] || printf '%s\n' "$output"
+    tries=120
+    while (( tries-- > 0 )); do
+      sleep 1
+      after="$(current_map)"
+      if [[ -n "$after" && ( "$after" != "$before" || "$after" == *"/$id/"* || "$after" == *"/$id" ) ]]; then
+        break
+      fi
+    done
+    if [[ -z "$after" || ( "$after" == "$before" && "$after" != *"/$id/"* && "$after" != *"/$id" ) ]]; then
+      err "Could not confirm that Workshop map $id became active; preset was not applied."
+      return 1
+    fi
+  fi
+  mode_identity comp_mr12 || return 1
+  apply_mode_rules comp_mr12 || return 1
+  workshop_profile_apply "$profile" || return 1
+  printf '%s %s\n' "$id" "$after" > "$WORKSHOP_ACTIVE"
+  chmod 600 "$WORKSHOP_ACTIVE"
+  ok "Workshop map active: $title ($after), preset: $profile"
+}
+
+workshop_menu() {
+  local choice link index profile id saved title
+  local -a entries=()
+  if [[ -n "$(workshop_tool collection 2>/dev/null)" ]]; then
+    workshop_tool refresh || warn 'Steam refresh failed; showing the last saved list.'
+  fi
+  while true; do
+    echo; echo -e "${bold}${CLR_MAPS}[Workshop collection maps]${reset}"
+    echo "Collection: $(workshop_tool collection 2>/dev/null || echo 'not configured')"
+    mapfile -t entries < <(workshop_tool list)
+    for index in "${!entries[@]}"; do
+      IFS=$'\t' read -r id saved title <<< "${entries[$index]}"
+      printf '  %d) %s [%s] (%s)\n' "$((index + 1))" "$title" "$saved" "$id"
+    done
+    (( ${#entries[@]} )) || echo '  No CS2 maps in the saved collection.'
+    echo '  c) Set collection link   r) Refresh list   p) Save a map preset   0) Back'
+    read -rp 'Select: ' choice || return 0
+    case "$choice" in
+      c|C) read -rp 'Steam Workshop Collection link or ID: ' link || return 0
+           [[ -z "$link" ]] || workshop_tool set-collection "$link" || true ;;
+      r|R) workshop_tool refresh || true ;;
+      p|P) read -rp 'Map number: ' index || return 0
+           [[ "$index" =~ ^[1-9][0-9]*$ ]] && (( index <= ${#entries[@]} )) || { warn 'Invalid map number.'; continue; }
+           IFS=$'\t' read -r id saved title <<< "${entries[$((index - 1))]}"
+           read -rp 'Preset (1 Competitive, 2 AWP only, 3 Scout only): ' profile || return 0
+           case "$profile" in 1) profile=competitive ;; 2) profile=awp ;; 3) profile=scout ;; *) warn 'Invalid preset.'; continue ;; esac
+           workshop_tool set-profile "$id" "$profile" || true ;;
+      0|'') return 0 ;;
+      *) if [[ "$choice" =~ ^[1-9][0-9]*$ ]] && (( choice <= ${#entries[@]} )); then
+           IFS=$'\t' read -r id saved title <<< "${entries[$((choice - 1))]}"
+           workshop_play "$id" || true
+         else warn 'Invalid selection.'; fi ;;
+    esac
+  done
+}
 
 armsrace_map() {
   local map="$1"
@@ -1485,11 +1617,12 @@ update_toolkit_git() {
   fi
   info "Pulling latest toolkit from Git..."
   (cd "$repo" && git pull --rebase) || { err "git pull failed"; return 1; }
-  if [[ ! -f "$src" || ! -f "$repo/scripts/cs2-config.sh" ]]; then
+  if [[ ! -f "$src" || ! -f "$repo/scripts/cs2-config.sh" || ! -f "$repo/scripts/cs2-workshop.py" ]]; then
     err 'Admin or config helper is missing from the toolkit repo.'
     return 1
   fi
   install -m 0755 "$repo/scripts/cs2-config.sh" "$CONFIG_TOOL" || { err "Config helper install failed"; return 1; }
+  install -m 0755 "$repo/scripts/cs2-workshop.py" "$WORKSHOP_TOOL" || { err "Workshop helper install failed"; return 1; }
   install -m 0755 "$src" "$self" || { err "Install failed"; return 1; }
   ok "Admin script updated from Git."
   echo "Reloading menu..."
@@ -1523,6 +1656,7 @@ banner() {
   echo -e "  ${CLR_MAPS}p)${reset} List installed maps"
   echo -e "  ${CLR_MAPS}A)${reset} Arms Race maps (Pool / Shoots / Baggage / Shoots Night + preset)"
   echo -e "  ${CLR_MAPS}R)${reset} Rush map (rush_001 + preset)"
+  echo -e "  ${CLR_MAPS}K)${reset} Workshop collection maps + saved presets"
   echo -e "  ${CLR_MAPS}H)${reset} Home: Competitive MR12 + de_dust2"
   echo -e "  ${CLR_MAPS}Note:${reset} Map keys follow the active preset; P1..P7 shows its available maps."
   echo
@@ -1608,6 +1742,7 @@ ui_loop() {
       p) list_installed_maps || true ;;
       A) armsrace_map_menu || true ;;
       R) rush_map_menu || true ;;
+      K) workshop_menu; continue ;;
       H) restore_default || true ;;
 
       # Two-key shortcuts work without Enter: b1/b2/... and v1/v2/....
@@ -1699,6 +1834,12 @@ case "$cmd" in
   default) restore_default ;;
   mode) apply_mode_and_reload "${1:-}" "${2:-}" ;;
   preset-maps) preset_maps "${1:-}" "${2:-}" ;;
+  workshop-menu) workshop_menu ;;
+  workshop-list) workshop_tool list ;;
+  workshop-set-collection) workshop_tool set-collection "${1:-}" ;;
+  workshop-refresh) workshop_tool refresh ;;
+  workshop-set-profile) workshop_tool set-profile "${1:-}" "${2:-}" ;;
+  workshop-play) workshop_play "${1:-}" "${2:-}" ;;
   rcon) rcon "$@" ;;
   list-banned) list_banned ;;
   unban-select) unban_select ;;

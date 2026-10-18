@@ -63,6 +63,7 @@ grep -Fq 'old manual updater' "$HOME"/update-cs2.sh.legacy-*
 [[ "$(ls -l "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg" | cut -c1-10)" == '-rw-------' ]]
 [[ -x "$HOME/cs2-ds/cs2-rcon.py" && -x "$HOME/cs2-ds/cs2-config.sh" && -x "$HOME/cs2-ds/cs2-buildid.py" ]]
 [[ -x "$HOME/cs2-ds/cs2-daily-home.sh" ]]
+[[ -x "$HOME/cs2-ds/cs2-workshop.py" ]]
 ! grep -Fq 'sv_setsteamaccount' "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg"
 grep -Fxq 'exec cs2_toolkit.cfg' "$HOME/cs2-ds/game/csgo/cfg/gamemode_competitive_server.cfg"
 grep -Fq 'ExecStart=%h/cs2-ds/cs2-safe-update.sh --check' "$HOME/.config/systemd/user/cs2-update.service"

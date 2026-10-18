@@ -101,6 +101,7 @@ else
 fi
 
 install -m 0755 "$REPO_DIR/scripts/cs2-admin.sh" "$CS2_DIR/cs2-admin.sh"
+install -m 0755 "$REPO_DIR/scripts/cs2-workshop.py" "$CS2_DIR/cs2-workshop.py"
 install -m 0755 "$REPO_DIR/scripts/cs2-config.sh" "$CS2_DIR/cs2-config.sh"
 install -m 0755 "$REPO_DIR/scripts/cs2-rcon.py" "$CS2_DIR/cs2-rcon.py"
 install -m 0755 "$REPO_DIR/scripts/cs2-buildid.py" "$CS2_DIR/cs2-buildid.py"

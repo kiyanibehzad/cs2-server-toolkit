@@ -6,7 +6,7 @@
 ⚡ One-command installer and admin toolkit for Counter-Strike 2 dedicated servers.
 Includes:
 - Automatic installation, player-safe game and OS updates, and conditional host reboot
-- Interactive admin menu with Arms Race and Rush map/mode presets, plus one-key return to Competitive on Dust II
+- Interactive admin menu with official and Workshop map presets, plus one-key return to Competitive on Dust II
 - Persistent bot controls and warmup duration, live voice controls, and weapon restrictions
 - Bans, join password, fun settings, logs, restart, and health check
 - User-level `systemd` service (auto-start after reboot with linger)
@@ -108,6 +108,28 @@ Looking for a reliable VPS or dedicated server for CS2?
   Deathmatch keep the ten full-size defuse maps; Arms Race and Rush have their
   own pools. A map missing from the server is marked and cannot be selected.
   The direct map hotkeys also reject maps outside the active preset.
+
+  Press `K` for Workshop maps. Steam's public API does not expose your personal
+  subscribed-item list to a community server. Put the CS2 maps you want to host
+  in a [Steam Workshop Collection](https://steamcommunity.com/workshop/browse/?appid=730&section=collections),
+  set its link once under `K` → `c`, and add new maps to that collection as you
+  subscribe to them. Opening `K` refreshes the list from Steam; `r` refreshes
+  it again. If Steam is unavailable, the last saved list remains visible.
+  Only CS2 items tagged as maps are shown, so weapon finishes are skipped.
+  A collection must be visible to Steam's public API; a private collection
+  cannot be loaded by this tool. Selecting a map asks CS2 to download its
+  current Workshop version and switch to it. The first download can take time
+  and changing maps interrupts a live match.
+
+  Each Workshop map starts with the Competitive preset. Under `K` → `p`, save
+  `AWP only` or `Scout only` for that map. Selecting its number then applies
+  the saved preset with the map. These sniper presets give both teams the
+  chosen rifle on spawn, remove the default pistol and buying, and give
+  armor. `H` returns to the standard Competitive + Dust II equipment.
+  The collection and saved presets live in `~/cs2-ds/toolkit-config/workshop.json`
+  and survive toolkit updates. For scripts, use `workshop-set-collection URL`,
+  `workshop-refresh`, `workshop-list`, `workshop-set-profile ID awp|scout|competitive`,
+  and `workshop-play ID [preset]` with `~/cs2-ds/cs2-admin.sh`.
 
   The Bot Management submenu (`b0`) shows the live bot count, target,
   quota mode, and difficulty. You can turn bots on, turn them off and kick
