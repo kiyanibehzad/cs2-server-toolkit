@@ -129,7 +129,6 @@ ensure_cfg_exists() {
     "$CFG_WEAPONS_DEFAULT")
       printf '%s\n' \
         'mp_buy_anywhere 0' \
-        'mp_buy_anywhere_warmup 0' \
         'mp_buytime 20' \
         'mp_ct_default_primary ""' \
         'mp_t_default_primary ""' > "$p"
@@ -822,7 +821,7 @@ apply_mode_and_reload() {
 restore_default() { apply_mode_and_reload comp_mr12 de_dust2; }
 
 # Steam does not expose a personal subscription list to a community server.
-# The public collection API gives us a safe, key-free catalog instead.
+# Public item and collection APIs provide a safe, key-free catalog instead.
 workshop_tool() {
   [[ -x "$WORKSHOP_TOOL" ]] || { err "Workshop helper is missing: $WORKSHOP_TOOL"; return 1; }
   "$WORKSHOP_TOOL" "$@"
@@ -843,7 +842,6 @@ workshop_profile_apply() {
     "mp_ct_default_primary $weapon"
     "mp_t_default_primary $weapon"
     'mp_buy_anywhere 0'
-    'mp_buy_anywhere_warmup 0'
     'mp_buytime 0'
     'mp_free_armor 1'
     'mp_weapons_allow_map_placed 0'
@@ -859,7 +857,7 @@ workshop_profile_apply() {
 
 workshop_play() {
   local id="${1:-}" requested="${2:-}" record saved profile title before after output tries active_id='' active_map=''
-  [[ "$id" =~ ^[1-9][0-9]{0,19}$ ]] || { err 'Select a map from the configured collection.'; return 1; }
+  [[ "$id" =~ ^[1-9][0-9]{0,19}$ ]] || { err 'Select a saved Workshop map.'; return 1; }
   record="$(workshop_tool get "$id")" || return 1
   IFS=$'\t' read -r _ saved title <<< "$record"
   profile="${requested:-$saved}"
@@ -897,8 +895,11 @@ workshop_play() {
     fi
   fi
   mode_identity comp_mr12 || return 1
-  apply_mode_rules comp_mr12 || return 1
-  workshop_profile_apply "$profile" || return 1
+  if ! apply_mode_rules comp_mr12 || ! workshop_profile_apply "$profile"; then
+    warn 'Workshop preset failed; restoring Home to avoid partial rules.'
+    restore_default || err 'Home restore also failed; inspect the live server.'
+    return 1
+  fi
   printf '%s %s\n' "$id" "$after" > "$WORKSHOP_ACTIVE"
   chmod 600 "$WORKSHOP_ACTIVE"
   ok "Workshop map active: $title ($after), preset: $profile"
@@ -911,20 +912,30 @@ workshop_menu() {
     workshop_tool refresh || warn 'Steam refresh failed; showing the last saved list.'
   fi
   while true; do
-    echo; echo -e "${bold}${CLR_MAPS}[Workshop collection maps]${reset}"
-    echo "Collection: $(workshop_tool collection 2>/dev/null || echo 'not configured')"
+    echo; echo -e "${bold}${CLR_MAPS}[Workshop maps]${reset}"
+    local collection_id
+    collection_id="$(workshop_tool collection 2>/dev/null)"
+    echo "Collection: ${collection_id:-none}"
     mapfile -t entries < <(workshop_tool list)
     for index in "${!entries[@]}"; do
       IFS=$'\t' read -r id saved title <<< "${entries[$index]}"
       printf '  %d) %s [%s] (%s)\n' "$((index + 1))" "$title" "$saved" "$id"
     done
-    (( ${#entries[@]} )) || echo '  No CS2 maps in the saved collection.'
-    echo '  c) Set collection link   r) Refresh list   p) Save a map preset   0) Back'
+    (( ${#entries[@]} )) || echo '  No Workshop maps saved yet.'
+    echo '  a) Add map link   d) Remove added map   p) Save a map preset'
+    echo '  c) Set collection link (optional)   r) Refresh collection   x) Clear collection   0) Back'
     read -rp 'Select: ' choice || return 0
     case "$choice" in
+      a|A) read -rp 'Steam Workshop map link or ID: ' link || return 0
+           [[ -z "$link" ]] || workshop_tool add-map "$link" || true ;;
+      d|D) read -rp 'Map number to remove: ' index || return 0
+           [[ "$index" =~ ^[1-9][0-9]*$ ]] && (( index <= ${#entries[@]} )) || { warn 'Invalid map number.'; continue; }
+           IFS=$'\t' read -r id saved title <<< "${entries[$((index - 1))]}"
+           workshop_tool remove-map "$id" || true ;;
       c|C) read -rp 'Steam Workshop Collection link or ID: ' link || return 0
            [[ -z "$link" ]] || workshop_tool set-collection "$link" || true ;;
       r|R) workshop_tool refresh || true ;;
+      x|X) workshop_tool clear-collection || true ;;
       p|P) read -rp 'Map number: ' index || return 0
            [[ "$index" =~ ^[1-9][0-9]*$ ]] && (( index <= ${#entries[@]} )) || { warn 'Invalid map number.'; continue; }
            IFS=$'\t' read -r id saved title <<< "${entries[$((index - 1))]}"
@@ -1656,7 +1667,7 @@ banner() {
   echo -e "  ${CLR_MAPS}p)${reset} List installed maps"
   echo -e "  ${CLR_MAPS}A)${reset} Arms Race maps (Pool / Shoots / Baggage / Shoots Night + preset)"
   echo -e "  ${CLR_MAPS}R)${reset} Rush map (rush_001 + preset)"
-  echo -e "  ${CLR_MAPS}K)${reset} Workshop collection maps + saved presets"
+  echo -e "  ${CLR_MAPS}K)${reset} Workshop maps + saved presets"
   echo -e "  ${CLR_MAPS}H)${reset} Home: Competitive MR12 + de_dust2"
   echo -e "  ${CLR_MAPS}Note:${reset} Map keys follow the active preset; P1..P7 shows its available maps."
   echo
@@ -1837,7 +1848,10 @@ case "$cmd" in
   workshop-menu) workshop_menu ;;
   workshop-list) workshop_tool list ;;
   workshop-set-collection) workshop_tool set-collection "${1:-}" ;;
+  workshop-clear-collection) workshop_tool clear-collection ;;
   workshop-refresh) workshop_tool refresh ;;
+  workshop-add-map) workshop_tool add-map "${1:-}" ;;
+  workshop-remove-map) workshop_tool remove-map "${1:-}" ;;
   workshop-set-profile) workshop_tool set-profile "${1:-}" "${2:-}" ;;
   workshop-play) workshop_play "${1:-}" "${2:-}" ;;
   rcon) rcon "$@" ;;

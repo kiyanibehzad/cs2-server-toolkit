@@ -109,17 +109,20 @@ Looking for a reliable VPS or dedicated server for CS2?
   own pools. A map missing from the server is marked and cannot be selected.
   The direct map hotkeys also reject maps outside the active preset.
 
-  Press `K` for Workshop maps. Steam's public API does not expose your personal
-  subscribed-item list to a community server. Put the CS2 maps you want to host
-  in a [Steam Workshop Collection](https://steamcommunity.com/workshop/browse/?appid=730&section=collections),
-  set its link once under `K` → `c`, and add new maps to that collection as you
-  subscribe to them. Opening `K` refreshes the list from Steam; `r` refreshes
-  it again. If Steam is unavailable, the last saved list remains visible.
-  Only CS2 items tagged as maps are shown, so weapon finishes are skipped.
-  A collection must be visible to Steam's public API; a private collection
-  cannot be loaded by this tool. Selecting a map asks CS2 to download its
-  current Workshop version and switch to it. The first download can take time
-  and changing maps interrupts a live match.
+  Press `K` for Workshop maps. Paste an individual Workshop map link under
+  `K` → `a`; the map then appears in the menu. For example, use the link to
+  [awp_india](https://steamcommunity.com/sharedfiles/filedetails/?id=3070290869).
+  Use `K` → `d` to remove an individually added map. Steam's public API does
+  not expose your personal subscribed-item list to a community server, so
+  subscribing on your PC alone cannot populate this menu. To keep a larger
+  list together, put those maps in a [Steam Workshop Collection](https://steamcommunity.com/workshop/browse/?appid=730&section=collections)
+  and enter its link once under `K` → `c`. Opening `K` refreshes that list;
+  `r` refreshes it again, and `x` clears the collection without removing maps
+  added individually. If Steam is unavailable, the last saved list remains
+  visible. Only CS2 items tagged as maps are shown, so weapon finishes are
+  skipped. Collections must be visible to Steam's public API. Selecting a map
+  asks CS2 to download its current Workshop version and switch to it. The
+  first download can take time and changing maps interrupts a live match.
 
   Each Workshop map starts with the Competitive preset. Under `K` → `p`, save
   `AWP only` or `Scout only` for that map. Selecting its number then applies
@@ -128,7 +131,8 @@ Looking for a reliable VPS or dedicated server for CS2?
   armor. `H` returns to the standard Competitive + Dust II equipment.
   The collection and saved presets live in `~/cs2-ds/toolkit-config/workshop.json`
   and survive toolkit updates. For scripts, use `workshop-set-collection URL`,
-  `workshop-refresh`, `workshop-list`, `workshop-set-profile ID awp|scout|competitive`,
+  `workshop-refresh`, `workshop-add-map URL`, `workshop-list`,
+  `workshop-set-profile ID awp|scout|competitive`,
   and `workshop-play ID [preset]` with `~/cs2-ds/cs2-admin.sh`.
 
   The Bot Management submenu (`b0`) shows the live bot count, target,

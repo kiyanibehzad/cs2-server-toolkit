@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Offline checks for the public Steam collection adapter."""
+"""Offline checks for Steam Workshop map management."""
 
+import contextlib
 import importlib.util
+import io
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -38,13 +41,46 @@ class WorkshopTests(unittest.TestCase):
     def test_state_keeps_preset_and_rejects_missing_map(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(workshop, "STATE", Path(directory) / "workshop.json"):
             state = workshop.load_state()
-            state.update(collection_id="123", maps=[{"id": "1", "title": "awp_india"}], profiles={"1": "scout"})
+            state.update(manual_maps=[{"id": "1", "title": "awp_india"}], profiles={"1": "scout"})
             workshop.save_state(state)
             self.assertEqual(workshop.load_state()["profiles"]["1"], "scout")
             self.assertEqual(workshop.find_map(workshop.load_state(), "1")["title"], "awp_india")
             with self.assertRaises(ValueError):
                 workshop.find_map(workshop.load_state(), "2")
             self.assertEqual(os.stat(workshop.STATE).st_mode & 0o777, 0o600)
+
+    def test_fetch_single_map(self):
+        response = {"publishedfiledetails": [{"publishedfileid": "3070290869", "result": 1,
+                    "consumer_app_id": 730, "title": "awp_india", "tags": [{"tag": "Map"}]}]}
+        with patch.object(workshop, "post_api", return_value=response):
+            self.assertEqual(workshop.fetch_map("3070290869"), {"id": "3070290869", "title": "awp_india"})
+        response["publishedfiledetails"][0]["tags"] = [{"tag": "Weapon Finish"}]
+        with patch.object(workshop, "post_api", return_value=response), self.assertRaises(ValueError):
+            workshop.fetch_map("3070290869")
+
+    def test_manual_map_commands_and_collection_cleanup(self):
+        item_id = "3070290869"
+        with tempfile.TemporaryDirectory() as directory, patch.object(workshop, "STATE", Path(directory) / "workshop.json"), \
+                patch.object(workshop, "fetch_map", return_value={"id": item_id, "title": "awp_india"}):
+            def run(*args):
+                with patch.object(sys, "argv", [str(SCRIPT), *args]), contextlib.redirect_stdout(io.StringIO()) as output:
+                    workshop.main()
+                    return output.getvalue()
+
+            link = f"https://steamcommunity.com/sharedfiles/filedetails/?id={item_id}"
+            run("add-map", link)
+            self.assertIn(f"{item_id}\tcompetitive\tawp_india", run("list"))
+            run("set-profile", item_id, "awp")
+            self.assertIn(f"{item_id}\tawp\tawp_india", run("get", item_id))
+            state = workshop.load_state()
+            state.update(collection_id="123", maps=[{"id": "456", "title": "other"}])
+            workshop.save_state(state)
+            run("clear-collection")
+            self.assertEqual(workshop.load_state()["collection_id"], "")
+            self.assertEqual(run("list").strip(), f"{item_id}\tawp\tawp_india")
+            run("remove-map", item_id)
+            self.assertEqual(run("list"), "")
+            self.assertNotIn(item_id, workshop.load_state()["profiles"])
 
 
 if __name__ == "__main__":
