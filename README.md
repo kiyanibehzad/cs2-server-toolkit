@@ -7,8 +7,6 @@
 Includes:
 - Automatic installation and player-safe updates (via `systemd --user` timers)
 - Interactive admin menu with Arms Race and Rush map/mode presets, plus one-key return to Competitive on Dust II
-- Optional in-game admin menu for maps, modes, bots, voice, weapons, and fun controls
-- Separate V2 beta of the in-game admin menu with mouse-clickable controls
 - Persistent bot controls (on/off, kick, add multiple, exact count, difficulty), live voice controls, and weapon restrictions
 - Bans, join password, fun settings, logs, restart, and health check
 - User-level `systemd` service (auto-start after reboot with linger)
@@ -62,10 +60,6 @@ Looking for a reliable VPS or dedicated server for CS2?
 
    Run the installer as the game user, not root. Running it again refreshes the
    toolkit files and systemd units while keeping existing game data and settings.
-   At the end, choose whether to install the optional in-game menu and enter
-   your own SteamID64 as its first admin. The installer restarts an active game
-   server once to load the plugin. For unattended setup, use
-   `WITH_INGAME_MENU=1 INGAME_ADMIN_STEAMID=7656119XXXXXXXXXX ./install.sh`.
    To update the game itself, use the updater below.
    If an older `~/update-cs2.sh` exists, the installer saves it with a
    `.legacy-<timestamp>` suffix before replacing it with the safe entry point.
@@ -84,32 +78,6 @@ Looking for a reliable VPS or dedicated server for CS2?
   ```bash
   ~/admin-cs2
   ```
-
-  Press `K` to install or update the optional in-game menu and manage its
-  SteamID64 admin list. Once installed, authorized players can type `!toolkit`
-  or `!admin` in game. The menu provides the same map and mode presets,
-  one-click return to Competitive on Dust II, bot targets and difficulty,
-  temporary voice controls, weapon restrictions, chickens, gravity, and speed.
-  Server maintenance, credentials, bans, and arbitrary RCON commands stay in
-  the terminal toolkit. Additional admins can be added with
-  `~/cs2-ds/cs2-ingame-menu.sh add-admin STEAMID64 Name` and removed with
-  `~/cs2-ds/cs2-ingame-menu.sh remove-admin STEAMID64`. The plugin grants only
-  its own `@cs2toolkit/admin` permission and preserves other CounterStrikeSharp
-  admin permissions. Check installation with
-  `~/cs2-ds/cs2-ingame-menu.sh status`.
-
-  A separate [mouse-driven V2 beta](plugins/Cs2ToolkitMenuV2/README.md) is
-  available for one-client testing. It uses CS2's new `custom_hud_layout`,
-  opens with `!adminv2`, and leaves the regular `!admin` menu intact. The V2
-  server plugin and client layout have separate build and test steps; follow
-  the beta guide before installing it on a server.
-
-  This option installs pinned, checksum-verified [Metamod:Source](https://wiki.alliedmods.net/Installing_SourceMM)
-  and [CounterStrikeSharp](https://docs.cssharp.dev/docs/guides/getting-started.html)
-  releases. It adds Metamod as the first game search path in `gameinfo.gi`;
-  the toolkit repairs that line on server start because a Steam update may
-  replace the file. Existing `admins.json` entries and `metaplugins.ini` are
-  preserved. The menu plugin source is in `plugins/Cs2ToolkitMenu`.
 
   Press `A` to choose an Arms Race map: Pool Day, Shoots, or Baggage.
   This applies the Arms Race preset and changes the map in one action. The menu
@@ -148,18 +116,6 @@ Looking for a reliable VPS or dedicated server for CS2?
   Run `~/cs2-ds/cs2-admin.sh health` for a read-only service, RCON, port,
   build and file-permission check. Steam/VAC login is reported as unknown when
   the game does not expose a reliable status signal.
-
-- **Try the terminal admin menu v2 beta**
-  ```bash
-  ~/cs2-server-toolkit/scripts/cs2-admin-v2.sh
-  ```
-
-  This separate script has a shorter main screen and grouped menus. It uses
-  the same server operations and settings as the regular admin menu, while
-  `~/admin-cs2` continues to open the regular version. Press Enter to return
-  from a beta submenu. Under Server tools, option 7 updates only the beta
-  script from Git. Run `~/cs2-server-toolkit/scripts/cs2-admin-v2.sh preview`
-  to print the main screen once without opening the interactive menu.
 
 - **Check logs**
   ```bash
