@@ -10,8 +10,14 @@ chmod +x "$TEST_ROOT/game/cs2-config.sh"
 printf 'HOST_IP=127.0.0.1\nPORT=27015\nRCON_PASS=test\n' > "$TEST_ROOT/game/.update.env"
 touch "$TEST_ROOT/game/game/csgo/maps/ar_pool_day.vpk"
 touch "$TEST_ROOT/game/game/csgo/maps/ar_shoots.vpk"
+touch "$TEST_ROOT/game/game/csgo/maps/ar_shoots_night.vpk"
 touch "$TEST_ROOT/game/game/csgo/maps/rush_001.vpk"
 touch "$TEST_ROOT/game/game/csgo/maps/de_dust2.vpk"
+touch "$TEST_ROOT/game/game/csgo/maps/de_mirage.vpk"
+touch "$TEST_ROOT/game/game/csgo/maps/de_debris.vpk"
+touch "$TEST_ROOT/game/game/csgo/maps/de_eldorado.vpk"
+touch "$TEST_ROOT/game/game/csgo/maps/de_inferno.vpk"
+touch "$TEST_ROOT/game/game/csgo/maps/de_poseidon_vanity.vpk"
 
 cat > "$TEST_ROOT/bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
@@ -75,6 +81,9 @@ grep -Fxq 'changelevel ar_pool_day' "$EVENTS"
 run_case shoots 0 ar_shoots
 grep -Fxq 'changelevel ar_shoots' "$EVENTS"
 
+run_case shoots_night 0 ar_shoots_night
+grep -Fxq 'changelevel ar_shoots_night' "$EVENTS"
+
 run_case missing_map 1 ar_baggage
 [[ ! -s "$EVENTS" ]] || { echo 'FAIL missing_map: sent RCON commands'; exit 1; }
 
@@ -136,6 +145,7 @@ TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'H\ne\n' > "$TEST_ROOT/output" 2
 grep -Fq 'H)' "$TEST_ROOT/output"
 grep -Fxq 'game_mode 1' "$EVENTS"
 grep -Fxq 'changelevel de_dust2' "$EVENTS"
+grep -Fxq 'mp_warmuptime 30' "$TEST_ROOT/game/game/csgo/cfg/cs2_toolkit.cfg"
 [[ "$(cat "$MAP_STATE")" == de_dust2 ]]
 [[ "$(cat "$TEST_ROOT/game_mode")" == 1 ]]
 echo 'PASS home_hotkey_restores_default'
@@ -146,6 +156,85 @@ echo 'PASS home_hotkey_restores_default'
 grep -Fxq 'changelevel de_dust2' "$EVENTS"
 [[ "$(cat "$TEST_ROOT/game_mode")" == 1 ]]
 echo 'PASS default_cli_restores_default'
+
+: > "$EVENTS"
+"$REPO/scripts/cs2-admin.sh" preset-maps 1 1+2 > "$TEST_ROOT/output" 2>&1
+[[ "$(grep '^changelevel ' "$EVENTS")" == $'changelevel de_dust2\nchangelevel de_mirage' ]]
+[[ "$(cat "$MAP_STATE")" == de_mirage ]]
+[[ "$(cat "$TEST_ROOT/game_mode")" == 1 ]]
+echo 'PASS preset_maps_apply_in_order'
+
+: > "$EVENTS"
+if "$REPO/scripts/cs2-admin.sh" preset-maps 1 1+5 > "$TEST_ROOT/output" 2>&1; then
+  echo 'FAIL accepted missing map in a sequence'; exit 1
+fi
+[[ ! -s "$EVENTS" ]]
+echo 'PASS preset_maps_validate_before_switch'
+
+: > "$EVENTS"
+"$REPO/scripts/cs2-admin.sh" preset-maps 6 1+2 > "$TEST_ROOT/output" 2>&1
+[[ "$(grep '^changelevel ' "$EVENTS")" == $'changelevel ar_pool_day\nchangelevel ar_shoots' ]]
+echo 'PASS armsrace_preset_maps'
+
+: > "$EVENTS"
+"$REPO/scripts/cs2-admin.sh" preset-maps 6 4 > "$TEST_ROOT/output" 2>&1
+grep -Fxq 'changelevel ar_shoots_night' "$EVENTS"
+echo 'PASS armsrace_fourth_map'
+
+: > "$EVENTS"
+"$REPO/scripts/cs2-admin.sh" preset-maps 3 1+2 > "$TEST_ROOT/output" 2>&1
+[[ "$(grep '^changelevel ' "$EVENTS")" == $'changelevel de_debris\nchangelevel de_eldorado' ]]
+echo 'PASS wingman_uses_own_map_pool'
+
+: > "$EVENTS"
+if "$REPO/scripts/cs2-admin.sh" preset-maps 3 1+8 > "$TEST_ROOT/output" 2>&1; then
+  echo 'FAIL accepted unsupported Wingman key'; exit 1
+fi
+[[ ! -s "$EVENTS" ]]
+echo 'PASS wingman_rejects_unsupported_key_before_switch'
+
+: > "$EVENTS"
+if "$REPO/scripts/cs2-admin.sh" preset-maps 3 3 > "$TEST_ROOT/output" 2>&1; then
+  echo 'FAIL accepted vanity-only Wingman map'; exit 1
+fi
+[[ ! -s "$EVENTS" ]]
+echo 'PASS wingman_requires_real_map_file'
+
+: > "$EVENTS"
+if "$REPO/scripts/cs2-admin.sh" preset-maps 5 1+8 > "$TEST_ROOT/output" 2>&1; then
+  echo 'FAIL accepted Anubis in Retakes'; exit 1
+fi
+[[ ! -s "$EVENTS" ]]
+echo 'PASS retakes_rejects_non_group_map'
+
+: > "$EVENTS"
+TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'P3\n\ne\n' > "$TEST_ROOT/output" 2>&1
+awk '/Preset 3: choose map keys/{shown=1; next} shown && count++ < 7 {print}' "$TEST_ROOT/output" > "$TEST_ROOT/preset-menu"
+grep -Fq '1) de_debris' "$TEST_ROOT/preset-menu"
+if grep -Fq 'de_dust2' "$TEST_ROOT/preset-menu"; then
+  echo 'FAIL Wingman preset menu shows Dust II'; exit 1
+fi
+echo 'PASS wingman_menu_lists_only_wingman_maps'
+
+"$REPO/scripts/cs2-admin.sh" preset-maps 3 1 > "$TEST_ROOT/output" 2>&1
+: > "$EVENTS"
+TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'1\ne\n' > "$TEST_ROOT/output" 2>&1
+if grep -Fxq 'changelevel de_dust2' "$EVENTS"; then
+  echo 'FAIL map hotkey bypassed Wingman restriction'; exit 1
+fi
+echo 'PASS map_hotkey_respects_active_preset'
+
+: > "$EVENTS"
+TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'P1+1\n\ne\n' > "$TEST_ROOT/output" 2>&1
+grep -Fxq 'changelevel de_dust2' "$EVENTS"
+[[ "$(cat "$TEST_ROOT/game_mode")" == 1 ]]
+echo 'PASS preset_map_shortcut'
+
+: > "$EVENTS"
+if "$REPO/scripts/cs2-admin.sh" preset-maps 1 '1;quit' > "$TEST_ROOT/output" 2>&1; then
+  echo 'FAIL accepted unsafe map key'; exit 1
+fi
+[[ ! -s "$EVENTS" ]]
 
 "$REPO/scripts/cs2-admin.sh" mode retakes > "$TEST_ROOT/output" 2>&1
 [[ "$(cat "$TEST_ROOT/sv_skirmish_id")" == 12 ]]

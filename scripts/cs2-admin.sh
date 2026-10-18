@@ -100,7 +100,7 @@ rcon() {
 
 has_map() {
   local map="$1"
-  find "$CS2_DIR/game" -type f \( -path "*/maps/${map}.bsp" -o -path "*/maps/${map}.vpk" -o -path "*/maps/${map}_*.vpk" \) \
+  find "$CS2_DIR/game" -type f \( -path "*/maps/${map}.bsp" -o -path "*/maps/${map}.vpk" \) \
     -print -quit 2>/dev/null | grep -q .
 }
 list_installed_maps() {
@@ -333,10 +333,18 @@ safe_update_now() {
 show_update_timer() {
   ensure_user_systemd_env
   echo -e "${bold}${CLR_ACTIONS}[Update timer status]${reset}"
-  systemctl --user list-timers --all | awk 'NR==1 || /cs2-checkupdate\.timer/ {print}'
+  systemctl --user list-timers --all | awk 'NR==1 || /cs2-(checkupdate|update|daily-home)\.timer/ {print}'
   echo
   echo -e "${bold}${CLR_ACTIONS}[Last cs2-checkupdate.service logs]${reset}"
   journalctl --user -u cs2-checkupdate.service -n 20 --no-pager || true
+}
+show_os_maintenance() {
+  local timer="cs2-os-maintenance@${CS2_USER}.timer" service="cs2-os-maintenance@${CS2_USER}.service"
+  echo -e "${bold}${CLR_TOOLS}[OS maintenance timer]${reset}"
+  systemctl list-timers --all "$timer" || true
+  echo
+  echo -e "${bold}${CLR_TOOLS}[Recent OS maintenance]${reset}"
+  journalctl -u "$service" -n 20 --no-pager || true
 }
 
 # ---------- BANS ----------
@@ -406,12 +414,16 @@ bot_count_for_control() {
 }
 
 bot_apply() {
-  local count="$1" difficulty="$2" last="$3" recreate="${4:-no}"
+  local count="$1" difficulty="$2" last="$3" maxplayers="${MAXPLAYERS:-32}" humans
   [[ "$count" =~ ^(0|[1-9]|[1-5][0-9]|6[0-4])$ ]] || { err 'Bot count must be 0-64.'; return 1; }
   [[ "$difficulty" =~ ^[0-3]$ ]] || { err 'Difficulty must be 0-3.'; return 1; }
+  [[ "$maxplayers" =~ ^[0-9]+$ ]] || maxplayers=32
+  humans="$(rcon status 2>/dev/null | sed -nE 's/^[[:space:]]*players[[:space:]]*:[[:space:]]*([0-9]+) humans,.*/\1/p' | head -n 1)"
+  [[ "$humans" =~ ^[0-9]+$ ]] || { err 'Cannot verify free player slots.'; return 1; }
+  (( count + humans <= maxplayers )) || { err "Only $((maxplayers - humans)) bot slots are available."; return 1; }
   [[ -x "$CONFIG_TOOL" ]] || { err 'Toolkit config helper is missing.'; return 1; }
   "$CONFIG_TOOL" bots-set "$count" "$difficulty" "$last" || return 1
-  if [[ "$count" == 0 || "$recreate" == yes ]]; then
+  if [[ "$count" == 0 ]]; then
     rcon 'bot_quota 0' >/dev/null || return 1
     rcon 'bot_kick' >/dev/null || return 1
   fi
@@ -461,8 +473,12 @@ bot_difficulty_set() {
   count="${BOT_SAVED_COUNT:-$(bot_count_for_control)}"
   last="$BOT_SAVED_LAST"
   (( count > 0 )) && last="$count"
-  bot_apply "$count" "$difficulty" "$last" yes || return 1
-  ok "Bot difficulty: $difficulty. Existing bots were recreated at the new level."
+  "$CONFIG_TOOL" bots-set "$count" "$difficulty" "$last" || return 1
+  rcon 'sv_auto_adjust_bot_difficulty 0' >/dev/null || return 1
+  rcon "bot_difficulty $difficulty" >/dev/null || return 1
+  verify_convar sv_auto_adjust_bot_difficulty 0 || return 1
+  verify_convar bot_difficulty "$difficulty" || return 1
+  ok "Bot difficulty: $difficulty. Newly added bots and future maps use this level."
 }
 
 bot_menu() {
@@ -480,7 +496,7 @@ bot_menu() {
     echo '  2) Turn off and kick all bots'
     echo '  3) Add multiple bots'
     echo '  4) Set exact bot count'
-    echo '  5) Change difficulty (recreates current bots)'
+    echo '  5) Change difficulty (no mass bot kick)'
     echo '  0) Back'
     echo
     read -rp 'Choose: ' choice || return 0
@@ -515,6 +531,7 @@ verify_convar() {
 # ---------- LIVE VOICE ----------
 # These are live server cvars only. No toolkit cfg or mode defaults are edited.
 VOICE_NAMES=(sv_full_alltalk sv_alltalk sv_deadtalk sv_talk_enemy_living sv_talk_enemy_dead sv_auto_full_alltalk_during_warmup_half_end)
+VOICE_BASELINE="$CS2_DIR/toolkit-config/voice-baseline.txt"
 voice_read() {
   local name value
   VOICE_VALUES=()
@@ -530,7 +547,7 @@ voice_status() {
   local mode='Custom'
   case "${VOICE_VALUES[*]}" in
     '0 0 0 0 0 0') mode='Team only' ;;
-    '0 0 1 0 0 0') mode='Team together' ;;
+    '0 0 1 0 0 1') mode='Team together; open during warmup/half/end' ;;
     '0 0 0 0 1 0') mode='Dead across teams' ;;
     '0 1 1 0 0 0') mode='Both teams' ;;
     '1 1 1 0 0 0') mode='Everyone, including spectators' ;;
@@ -541,19 +558,51 @@ voice_status() {
     "${VOICE_VALUES[3]}" "${VOICE_VALUES[4]}" "${VOICE_VALUES[5]}"
 }
 
+voice_signature() {
+  local pid game_type game_mode skirmish map
+  pid="$(systemctl --user show -P MainPID "${SERVICE_NAME}.service" 2>/dev/null || true)"
+  game_type="$(convar_value game_type)" || return 1
+  game_mode="$(convar_value game_mode)" || return 1
+  skirmish="$(convar_value sv_skirmish_id)" || return 1
+  map="$(current_map)"
+  printf '%s|%s|%s|%s|%s' "$pid" "$game_type" "$game_mode" "$skirmish" "$map"
+}
+
+voice_baseline() {
+  local signature saved_signature saved_values temp
+  signature="$(voice_signature)" || return 1
+  if [[ -f "$VOICE_BASELINE" ]]; then
+    IFS= read -r saved_signature < "$VOICE_BASELINE"
+    saved_values="$(sed -n '2p' "$VOICE_BASELINE")"
+    if [[ "$saved_signature" == "$signature" && "$saved_values" =~ ^[01](\ [01]){5}$ ]]; then
+      read -r -a VOICE_DEFAULT <<< "$saved_values"
+      return 0
+    fi
+  fi
+  VOICE_DEFAULT=("${VOICE_VALUES[@]}")
+  mkdir -p "$(dirname "$VOICE_BASELINE")"
+  temp="$(mktemp "${VOICE_BASELINE}.XXXXXX")" || return 1
+  printf '%s\n%s\n' "$signature" "${VOICE_DEFAULT[*]}" > "$temp"
+  chmod 600 "$temp"
+  mv -f "$temp" "$VOICE_BASELINE"
+}
+
 voice_mode() {
   local mode="${1:-}" i failed=0
   local -a desired previous
   case "$mode" in
     team)      desired=(0 0 0 0 0 0) ;;
-    team-dead) desired=(0 0 1 0 0 0) ;;
+    team-dead) desired=(0 0 1 0 0 1) ;;
     dead-all)  desired=(0 0 0 0 1 0) ;;
     both-teams) desired=(0 1 1 0 0 0) ;;
     all)       desired=(1 1 1 0 0 0) ;;
-    *) err 'Voice mode must be team, team-dead, dead-all, both-teams, or all.'; return 2 ;;
+    default) ;;
+    *) err 'Voice mode must be team, team-dead, dead-all, both-teams, all, or default.'; return 2 ;;
   esac
   voice_read || { err 'Could not read the current voice settings.'; return 1; }
   previous=("${VOICE_VALUES[@]}")
+  voice_baseline || { err 'Could not save the mode voice defaults.'; return 1; }
+  [[ "$mode" == default ]] && desired=("${VOICE_DEFAULT[@]}")
   for i in "${!VOICE_NAMES[@]}"; do
     [[ "${previous[i]}" == "${desired[i]}" ]] && continue
     rcon "${VOICE_NAMES[i]} ${desired[i]}" >/dev/null || { failed=1; break; }
@@ -575,21 +624,89 @@ voice_menu() {
     echo
     echo -e "${bold}${CLR_VOICE}=== Live Voice ===${reset}"
     voice_status || warn 'Live voice settings unavailable.'
-    echo '  1) Team only: living and dead separated'
-    echo '  2) Team together: dead can speak to living teammates'
-    echo '  3) Dead players across both teams; living stay team-only'
-    echo '  4) Both teams together (T + CT)'
-    echo '  5) Everyone together, including spectators'
+    echo '  1) Each team together; all open during warmup/half/end'
+    echo '  2) Living teammates; dead players across both teams'
+    echo '  3) Everyone in both teams together (fun)'
+    echo '  4) Restore this game mode voice defaults'
+    echo '  5) Team only: living and dead separated'
+    echo '  6) Everyone together, including spectators'
     echo '  0) Back'
     read -rp 'Choose: ' choice || return 0
     case "$choice" in
-      1) voice_mode team || true ;;
-      2) voice_mode team-dead || true ;;
-      3) voice_mode dead-all || true ;;
-      4) voice_mode both-teams || true ;;
-      5) voice_mode all || true ;;
+      1) voice_mode team-dead || true ;;
+      2) voice_mode dead-all || true ;;
+      3) voice_mode both-teams || true ;;
+      4) voice_mode default || true ;;
+      5) voice_mode team || true ;;
+      6) voice_mode all || true ;;
       0|"") return 0 ;;
       *) err 'Invalid choice.' ;;
+    esac
+  done
+}
+
+# Persisted in cs2_toolkit.cfg so Valve's mode cfg cannot reset the choice on
+# the next map. Zero seconds ends warmup; a positive duration enables it.
+warmup_saved() {
+  local saved
+  WARMUP_SECONDS='' WARMUP_LAST=30
+  saved="$("$CONFIG_TOOL" warmup-show)" || return 1
+  [[ -n "$saved" ]] && read -r WARMUP_SECONDS WARMUP_LAST <<< "$saved"
+  return 0
+}
+
+warmup_status() {
+  warmup_saved || return 1
+  printf 'Saved: %s | Last enabled duration: %ss | Live duration: %ss\n' \
+    "${WARMUP_SECONDS:-mode default}" "$WARMUP_LAST" "$(convar_value mp_warmuptime)"
+}
+
+warmup_set() {
+  local seconds="$1" last previous previous_all
+  if [[ ! "$seconds" =~ ^(0|[1-9][0-9]{0,3})$ ]] || (( 10#$seconds > 3600 )); then
+    err 'Warmup duration must be 0-3600 seconds.'; return 2;
+  fi
+  warmup_saved || return 1
+  last="$WARMUP_LAST"
+  (( seconds > 0 )) && last="$seconds"
+  previous="$(convar_value mp_warmuptime)" || return 1
+  previous_all="$(convar_value mp_warmuptime_all_players_connected)" || return 1
+  rcon "mp_warmuptime $seconds" >/dev/null || return 1
+  if ! rcon "mp_warmuptime_all_players_connected $seconds" >/dev/null; then
+    rcon "mp_warmuptime $previous" >/dev/null || true
+    return 1
+  fi
+  if ! "$CONFIG_TOOL" warmup-set "$seconds" "$last"; then
+    rcon "mp_warmuptime $previous" >/dev/null || true
+    rcon "mp_warmuptime_all_players_connected $previous_all" >/dev/null || true
+    return 1
+  fi
+  if (( seconds == 0 )); then
+    rcon mp_warmup_end >/dev/null || warn 'Saved as off, but the current warmup could not be ended.'
+  fi
+  ok "Warmup saved: ${seconds}s. It applies on future map loads."
+}
+
+warmup_menu() {
+  local choice seconds
+  while true; do
+    echo
+    echo -e "${bold}${CLR_TOOLS}=== Warmup ===${reset}"
+    warmup_status || warn 'Warmup status unavailable.'
+    echo '  1) Turn on (last duration)'
+    echo '  2) Turn off and end current warmup'
+    echo '  3) Set permanent duration (seconds)'
+    echo '  4) Start warmup now'
+    echo '  0) Back'
+    read -rp 'Choose: ' choice || return 0
+    case "$choice" in
+      1) warmup_saved && warmup_set "$WARMUP_LAST" || true ;;
+      2) warmup_set 0 || true ;;
+      3) read -rp 'Duration in seconds (1-3600; blank=cancel): ' seconds || return 0
+         [[ -z "$seconds" ]] || warmup_set "$seconds" || true ;;
+      4) rcon mp_warmup_start || true ;;
+      0|'') return 0 ;;
+      *) warn 'Unknown option.' ;;
     esac
   done
 }
@@ -694,7 +811,7 @@ restore_default() { apply_mode_and_reload comp_mr12 de_dust2; }
 armsrace_map() {
   local map="$1"
   case "$map" in
-    ar_pool_day|ar_shoots|ar_baggage) ;;
+    ar_pool_day|ar_shoots|ar_shoots_night|ar_baggage) ;;
     *) err "Unknown Arms Race map: $map"; return 1 ;;
   esac
   if ! has_map "$map"; then
@@ -707,11 +824,12 @@ armsrace_map() {
 armsrace_map_menu() {
   local sel map label
   echo; echo -e "${bold}${CLR_MAPS}[Arms Race Maps (map + preset)]${reset}"
-  for sel in 1 2 3; do
+  for sel in 1 2 3 4; do
     case "$sel" in
       1) map=ar_pool_day; label="Pool Day" ;;
       2) map=ar_shoots; label="Shoots" ;;
       3) map=ar_baggage; label="Baggage" ;;
+      4) map=ar_shoots_night; label="Shoots Night" ;;
     esac
     if has_map "$map"; then
       echo -e "  ${CLR_MAPS}${sel})${reset} ${label} (${map})"
@@ -726,6 +844,7 @@ armsrace_map_menu() {
     1) armsrace_map ar_pool_day ;;
     2) armsrace_map ar_shoots ;;
     3) armsrace_map ar_baggage ;;
+    4) armsrace_map ar_shoots_night ;;
     0|"") return 0 ;;
     *) err "Invalid selection"; return 1 ;;
   esac
@@ -762,8 +881,113 @@ rush_map_menu() {
   esac
 }
 
-# Menu
+# A preset and its maps are chosen together. Validate the whole list before
+# changing the live server so a typo cannot leave it on an earlier map.
+preset_name() {
+  case "$1" in
+    1) echo comp_mr12 ;; 2) echo casual ;; 3) echo wingman ;;
+    4) echo deathmatch ;; 5) echo retakes ;; 6) echo armsrace ;;
+    7) echo rush ;; *) return 1 ;;
+  esac
+}
+
+preset_map_for_key() {
+  local preset="$1" key="$2"
+  case "$preset:$key" in
+    1:*|2:*|4:*) [[ "$key" =~ ^[0-9]$ ]] || return 1; map_for_key "$key" ;;
+    3:1) echo de_debris ;; 3:2) echo de_eldorado ;;
+    3:3) echo de_poseidon ;; 3:4) echo de_overpass ;;
+    3:5) echo de_vertigo ;; 3:6) echo de_nuke ;;
+    3:7) echo de_inferno ;;
+    5:1|5:2|5:3|5:4|5:5|5:6|5:7|5:0) map_for_key "$key" ;;
+    6:1) echo ar_pool_day ;; 6:2) echo ar_shoots ;;
+    6:3) echo ar_baggage ;; 6:4) echo ar_shoots_night ;;
+    7:1) echo rush_001 ;;
+    *) return 1 ;;
+  esac
+}
+
+current_preset_number() {
+  local type game skirmish
+  type="$(convar_value game_type)" || return 1
+  game="$(convar_value game_mode)" || return 1
+  skirmish="$(convar_value sv_skirmish_id)" || return 1
+  case "$type:$game:$skirmish" in
+    0:1:0) echo 1 ;; 0:0:0) echo 2 ;; 0:2:0) echo 3 ;;
+    1:2:0) echo 4 ;; 0:0:12) echo 5 ;; 1:0:0) echo 6 ;;
+    0:6:0) echo 7 ;; *) echo 0 ;;
+  esac
+}
+
+map_allowed_for_preset() {
+  local preset="$1" candidate="$2" key map
+  for key in 1 2 3 4 5 6 7 8 9 0; do
+    map="$(preset_map_for_key "$preset" "$key")" || continue
+    [[ "$map" == "$candidate" ]] && return 0
+  done
+  return 1
+}
+
+change_map_hotkey() {
+  local map="$1" preset
+  preset="$(current_preset_number)" || { err 'Cannot read the current mode; map was not changed.'; return 1; }
+  if [[ "$preset" != 0 ]] && ! map_allowed_for_preset "$preset" "$map"; then
+    err "Map '$map' is unavailable in preset $preset. Use P$preset for its maps, or H for Home."
+    return 1
+  fi
+  change_map "$map"
+}
+
+preset_maps() {
+  local preset="$1" raw="${2:-}" mode key map
+  local -a keys maps=()
+  mode="$(preset_name "$preset")" || { err "Unknown preset: $preset"; return 2; }
+  if [[ "$mode" == rush ]]; then
+    [[ -z "$raw" || "$raw" == 1 ]] || { err 'Rush has only map 1 (rush_001).'; return 2; }
+    rush_map rush_001
+    return
+  fi
+  raw="${raw#+}"
+  [[ "$raw" =~ ^[0-9]([+,][0-9])*$ ]] || {
+    err 'Enter map keys such as 1 or 1+2 (up to five maps).'; return 2;
+  }
+  IFS=',+' read -r -a keys <<< "$raw"
+  (( ${#keys[@]} <= 5 )) || { err 'Choose at most five maps at a time.'; return 2; }
+  for key in "${keys[@]}"; do
+    map="$(preset_map_for_key "$preset" "$key")" || {
+      err "Map key $key is not available for preset $preset."; return 2;
+    }
+    if [[ -z "$map" ]] || ! has_map "$map"; then
+      err "Map '$map' is not installed; no change was made."; return 1;
+    fi
+    maps+=("$map")
+  done
+  for map in "${maps[@]}"; do
+    apply_mode_and_reload "$mode" "$map" || {
+      err "Stopped after a failed switch to $map."; return 1;
+    }
+  done
+}
+
+preset_prompt() {
+  local preset="$1" raw key map
+  if [[ "$preset" == 7 ]]; then
+    preset_maps 7
+    return
+  fi
+  echo
+  echo -e "${bold}${CLR_MODES}[Preset $preset: choose map keys]${reset}"
+  for key in 1 2 3 4 5 6 7 8 9 0; do
+    map="$(preset_map_for_key "$preset" "$key")" || continue
+    printf '  %s) %s%s\n' "$key" "$map" "$(has_map "$map" || printf ' [not installed]')"
+  done
+  read -rp 'Map key(s), e.g. 1 or 1+2 (blank=cancel): ' raw || return 0
+  [[ -n "$raw" ]] || return 0
+  preset_maps "$preset" "$raw"
+}
+
 mode_menu() {
+  local sel
   echo; echo -e "${bold}${CLR_MODES}[Game Mode Presets]${reset}"
   echo -e "  ${CLR_MODES}1)${reset} Competitive"
   echo -e "  ${CLR_MODES}2)${reset} Casual"
@@ -776,13 +1000,7 @@ mode_menu() {
   echo
   read -rp "Select: " sel
   case "$sel" in
-    1) apply_mode_and_reload comp_mr12 ;;
-    2) apply_mode_and_reload casual ;;
-    3) apply_mode_and_reload wingman ;;
-    4) apply_mode_and_reload deathmatch ;;
-    5) apply_mode_and_reload retakes ;;
-    6) apply_mode_and_reload armsrace ;;
-    7) rush_map rush_001 ;;
+    1|2|3|4|5|6|7) preset_prompt "$sel" ;;
     0|"") return 0 ;;
     *) err "Invalid selection" ;;
   esac
@@ -1303,24 +1521,24 @@ banner() {
   echo -e "  ${CLR_MAPS}5)${reset} de_overpass  ${CLR_MAPS}6)${reset} de_vertigo   ${CLR_MAPS}7)${reset} de_ancient  ${CLR_MAPS}8)${reset} de_anubis"
   echo -e "  ${CLR_MAPS}9)${reset} de_cache     ${CLR_MAPS}0)${reset} de_train"
   echo -e "  ${CLR_MAPS}p)${reset} List installed maps"
-  echo -e "  ${CLR_MAPS}A)${reset} Arms Race maps (Pool Day / Shoots / Baggage + preset)"
+  echo -e "  ${CLR_MAPS}A)${reset} Arms Race maps (Pool / Shoots / Baggage / Shoots Night + preset)"
   echo -e "  ${CLR_MAPS}R)${reset} Rush map (rush_001 + preset)"
   echo -e "  ${CLR_MAPS}H)${reset} Home: Competitive MR12 + de_dust2"
+  echo -e "  ${CLR_MAPS}Note:${reset} Map keys follow the active preset; P1..P7 shows its available maps."
   echo
-  echo -e "${bold}${CLR_BOTS}[Bots]${reset}"
-  echo -e "  ${CLR_BOTS}b)${reset} Bot management (on/off, count, add many, difficulty)"
+  echo -e "${bold}${CLR_BOTS}[Bots: press two keys]${reset}"
+  echo -e "  ${CLR_BOTS}b1)${reset} On  ${CLR_BOTS}b2)${reset} Off + kick  ${CLR_BOTS}b3)${reset} Add many  ${CLR_BOTS}b4)${reset} Exact count  ${CLR_BOTS}b5)${reset} Difficulty  ${CLR_BOTS}b0)${reset} Menu"
   echo
-  echo -e "${bold}${CLR_VOICE}[Voice]${reset}"
-  echo -e "  ${CLR_VOICE}v)${reset} Live voice control (teams / dead / everyone)"
+  echo -e "${bold}${CLR_VOICE}[Voice: press two keys]${reset}"
+  echo -e "  ${CLR_VOICE}v1)${reset} Team + warmup  ${CLR_VOICE}v2)${reset} Dead both teams  ${CLR_VOICE}v3)${reset} Everyone  ${CLR_VOICE}v4)${reset} Mode default"
+  echo -e "  ${CLR_VOICE}v5)${reset} Strict team  ${CLR_VOICE}v6)${reset} + Spectators  ${CLR_VOICE}v0)${reset} Menu"
+  echo -e "  ${CLR_VOICE}W)${reset} Warmup (default 30s; permanent on/off/duration)"
   echo
   echo -e "${bold}${CLR_ACTIONS}[Actions]${reset}"
   echo -e "  ${CLR_ACTIONS}s)${reset} Status       ${CLR_ACTIONS}y)${reset} Say message  ${CLR_ACTIONS}a)${reset} Kick ALL"
   echo
   echo -e "${bold}${CLR_TOOLS}[Tools]${reset}"
-  echo -e "  ${CLR_TOOLS}u)${reset} Force update (if empty)  ${CLR_TOOLS}r)${reset} Restart svc  ${CLR_TOOLS}L)${reset} Live logs"
-  echo -e "  ${CLR_TOOLS}x)${reset} Backup cfg   ${CLR_TOOLS}c)${reset} Custom RCON"
-  echo -e "  ${CLR_TOOLS}T)${reset} Safe update check  ${CLR_TOOLS}t)${reset} Update timer status  ${CLR_TOOLS}G)${reset} Update admin menu (git)"
-  echo -e "  ${CLR_TOOLS}h)${reset} Health check"
+  echo -e "  ${CLR_TOOLS}m)${reset} Maintenance and server tools (updates / restart / logs / health)"
   echo
   echo -e "${bold}${cyan}[Access]${reset}"
   echo -e "  ${cyan}J)${reset} Join password menu"
@@ -1329,7 +1547,7 @@ banner() {
   echo -e "  ${CLR_BANS}B)${reset} List banned  ${CLR_BANS}U)${reset} Unban (select from list)"
   echo
   echo -e "${bold}${CLR_MODES}[Modes]${reset}"
-  echo -e "  ${CLR_MODES}P)${reset} Game mode presets (Comp_MR12 / Casual / Wingman / DM)"
+  echo -e "  ${CLR_MODES}P1..P7)${reset} Preset + map keys (then choose 1 or 1+2)  ${CLR_MODES}P0)${reset} Preset menu"
   echo -e "  ${CLR_MODES}C)${reset} Create custom mode (.cfg)"
   echo -e "  ${CLR_MODES}S)${reset} Edit *_server.cfg per mode (Edit+restart)"
   echo
@@ -1345,43 +1563,98 @@ banner() {
   echo -ne "${bold}${blue}Press a key:${reset} "
 }
 
+tools_menu() {
+  local choice RC
+  while true; do
+    echo
+    echo -e "${bold}${CLR_TOOLS}=== Maintenance and Server Tools ===${reset}"
+    echo '  1) Force game update (only when empty)'
+    echo '  2) Restart game service'
+    echo '  3) Live game logs'
+    echo '  4) Back up game cfg'
+    echo '  5) Custom RCON command'
+    echo '  6) Safe game update check'
+    echo '  7) Game timers and update logs'
+    echo '  8) Update toolkit menu from Git'
+    echo '  9) Server health check'
+    echo '  10) OS update and reboot status'
+    echo '  0) Back'
+    read -rp 'Choose: ' choice || return 0
+    case "$choice" in
+      1) update_server || true ;;
+      2) restart_service || true ;;
+      3) live_logs || true ;;
+      4) backup_cfg || true ;;
+      5) read -rp 'RCON command (blank=cancel): ' RC || return 0
+         [[ -z "$RC" ]] || rcon "$RC" || true ;;
+      6) safe_update_now || true ;;
+      7) show_update_timer || true ;;
+      8) update_toolkit_git || true ;;
+      9) "$CS2_DIR/cs2-health.sh" || true ;;
+      10) show_os_maintenance || true ;;
+      0|'') return 0 ;;
+      *) warn 'Unknown option.' ;;
+    esac
+  done
+}
+
 ui_loop() {
   while true; do
     banner
     IFS= read -r -n1 key
     echo
     case "$key" in
-      1|2|3|4|5|6|7|8|9|0) map="$(map_for_key "$key")"; [[ -n "$map" ]] && change_map "$map" || warn "Unknown key" ;;
+      1|2|3|4|5|6|7|8|9|0) map="$(map_for_key "$key")"; [[ -n "$map" ]] && change_map_hotkey "$map" || warn "Unknown key" ;;
       p) list_installed_maps || true ;;
       A) armsrace_map_menu || true ;;
       R) rush_map_menu || true ;;
       H) restore_default || true ;;
 
-      # Bots
-      b) bot_menu; continue ;;
-      v) voice_menu; continue ;;
+      # Two-key shortcuts work without Enter: b1/b2/... and v1/v2/....
+      b) IFS= read -r -n1 subkey || continue; echo
+         case "$subkey" in
+           1) bot_enable || true ;;
+           2) bot_set_count 0 || true ;;
+           3) read -rp 'How many bots to add (1-64; blank=cancel): ' amount
+              [[ -z "$amount" ]] || bot_add_many "$amount" || true ;;
+           4) read -rp 'Exact bot count (0-64; blank=cancel): ' amount
+              [[ -z "$amount" ]] || bot_set_count "$amount" || true ;;
+           5) read -rp 'Difficulty (0 easy, 1 normal, 2 hard, 3 expert; blank=cancel): ' amount
+              [[ -z "$amount" ]] || bot_difficulty_set "$amount" || true ;;
+           0) bot_menu; continue ;;
+           *) warn "Unknown bot shortcut: b$subkey" ;;
+         esac ;;
+      v) IFS= read -r -n1 subkey || continue; echo
+         case "$subkey" in
+           1) voice_mode team-dead || true ;;
+           2) voice_mode dead-all || true ;;
+           3) voice_mode both-teams || true ;;
+           4) voice_mode default || true ;;
+           5) voice_mode team || true ;;
+           6) voice_mode all || true ;;
+           0) voice_menu; continue ;;
+           *) warn "Unknown voice shortcut: v$subkey" ;;
+         esac ;;
+      W) warmup_menu; continue ;;
 
       # Actions
       s) status || true ;;
       y) read -rp "Message (blank=cancel): " MSG; [[ -z "$MSG" ]] && info "Cancelled." || say "$MSG" ;;
       a) kick_all || true ;;
 
-      # Tools
-      u) update_server || true ;;
-      r) restart_service || true ;;
-      L) live_logs || true ;;
-      x) backup_cfg || true ;;
-      c) read -rp "RCON cmd (blank=cancel): " RC; [[ -z "$RC" ]] && info "Cancelled." || rcon "$RC" ;;
-      T) safe_update_now || true ;;
-      t) show_update_timer || true ;;
-      h) "$CS2_DIR/cs2-health.sh" || true ;;
-      G) update_toolkit_git || true ;;
+      # Less frequent maintenance commands live in one submenu.
+      m) tools_menu; continue ;;
 
       # Access / Bans / Modes / Weapons / Fun
       J|j) join_password_menu ;;
       B) list_banned || true ;;
       U) unban_select || true ;;
-      P) mode_menu ;;
+      P) IFS= read -r -n1 subkey || continue; echo
+         case "$subkey" in
+           0) mode_menu ;;
+           1|2|3|4|5|6|7) preset_prompt "$subkey" || true ;;
+           *) warn "Unknown preset shortcut: P$subkey" ;;
+         esac ;;
       C) create_custom_mode ;;
       S) edit_mode_server_cfg_menu ;;
       w) weapons_menu ;;
@@ -1412,6 +1685,9 @@ case "$cmd" in
   voice-mode) voice_mode "${1:-}" ;;
   voice-status) voice_status ;;
   voice-menu) voice_menu ;;
+  warmup-menu) warmup_menu ;;
+  warmup-status) warmup_status ;;
+  warmup-set) warmup_set "${1:-}" ;;
   kick-all) kick_all ;;
   update) update_server ;;
   restart) restart_service ;;
@@ -1422,12 +1698,14 @@ case "$cmd" in
   rush-map) rush_map "${1:-}" ;;
   default) restore_default ;;
   mode) apply_mode_and_reload "${1:-}" "${2:-}" ;;
+  preset-maps) preset_maps "${1:-}" "${2:-}" ;;
   rcon) rcon "$@" ;;
   list-banned) list_banned ;;
   unban-select) unban_select ;;
   join-pass-menu) join_password_menu ;;
   safe-update) safe_update_now ;;
   show-timer) show_update_timer ;;
+  show-os-maintenance) show_os_maintenance ;;
   health) "$CS2_DIR/cs2-health.sh" ;;
   weapons-show) weapons_block_show ;;
   weapons-set) weapons_block_set "${1:-}" ;;

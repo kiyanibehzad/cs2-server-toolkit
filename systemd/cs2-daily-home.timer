@@ -1,0 +1,11 @@
+[Unit]
+Description=Try player-safe CS2 Home reset from 06:00 to noon
+
+[Timer]
+OnCalendar=*-*-* 06..11:00/5:00
+AccuracySec=1s
+Persistent=false
+Unit=cs2-daily-home.service
+
+[Install]
+WantedBy=timers.target

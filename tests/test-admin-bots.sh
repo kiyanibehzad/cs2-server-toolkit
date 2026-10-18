@@ -51,7 +51,8 @@ grep -Fxq 'bot_quota 5' "$TEST_ROOT/game/game/csgo/cfg/cs2_toolkit.cfg"
 [[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '5 3 5' ]]
 [[ "$(cat "$TEST_ROOT/bot_difficulty")" == 3 ]]
 [[ "$(cat "$TEST_ROOT/sv_auto_adjust_bot_difficulty")" == 0 ]]
-[[ "$(grep -n '^bot_kick$' "$EVENTS" | head -n1 | cut -d: -f1)" -lt "$(grep -n '^exec cs2_toolkit.cfg$' "$EVENTS" | head -n1 | cut -d: -f1)" ]]
+! grep -Fxq 'bot_kick' "$EVENTS"
+! grep -Fxq 'exec cs2_toolkit.cfg' "$EVENTS"
 
 "$ADMIN" bot-off > "$TEST_ROOT/output"
 [[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '0 3 5' ]]
@@ -61,9 +62,12 @@ grep -Fxq 'bot_quota 5' "$TEST_ROOT/game/game/csgo/cfg/cs2_toolkit.cfg"
 [[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '5 3 5' ]]
 
 : > "$EVENTS"
-TERM=xterm "$ADMIN" ui <<< $'b3\n2\n\n0\ne\n' > "$TEST_ROOT/output" 2>&1
-grep -Fq 'Bot Management' "$TEST_ROOT/output"
+TERM=xterm "$ADMIN" ui <<< $'b32\n\ne\n' > "$TEST_ROOT/output" 2>&1
+grep -Fq '[Bots: press two keys]' "$TEST_ROOT/output"
 [[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '7 3 7' ]]
+
+TERM=xterm "$ADMIN" ui <<< $'m0\ne\n' > "$TEST_ROOT/output" 2>&1
+grep -Fq 'Maintenance and Server Tools' "$TEST_ROOT/output"
 
 if "$ADMIN" bots-add '2;quit' > "$TEST_ROOT/output" 2>&1; then
   echo 'FAIL unsafe count accepted'; exit 1

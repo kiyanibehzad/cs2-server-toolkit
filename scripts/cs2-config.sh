@@ -7,6 +7,7 @@ CFG_DIR="$CS2_DIR/game/csgo/cfg"
 STATE_DIR="$CS2_DIR/toolkit-config"
 STATE="$STATE_DIR/blocked-weapons.txt"
 BOTS_STATE="$STATE_DIR/bots.txt"
+WARMUP_STATE="$STATE_DIR/warmup.txt"
 GENERATED="$CFG_DIR/cs2_toolkit.cfg"
 HOOK='exec cs2_toolkit.cfg'
 
@@ -77,10 +78,11 @@ ensure_hook() {
 }
 
 sync_config() {
-  local list file bot_count bot_difficulty bot_last content
+  local list file bot_count bot_difficulty bot_last warmup_seconds warmup_last content
   mkdir -p "$CFG_DIR" "$STATE_DIR"
   chmod 700 "$STATE_DIR"
   [[ -f "$STATE" ]] || atomic_line "$STATE" ''
+  [[ -f "$WARMUP_STATE" ]] || atomic_line "$WARMUP_STATE" '30 30'
   list="$(head -n 1 "$STATE")"
   [[ "$(normalize_weapons "$list")" == "$list" ]] || {
     echo 'Invalid persisted weapons list' >&2; return 1;
@@ -97,6 +99,12 @@ sync_config() {
     content+=$'\n'"bot_difficulty $bot_difficulty"
     content+=$'\n'"bot_quota $bot_count"
   fi
+  read -r warmup_seconds warmup_last < "$WARMUP_STATE"
+  valid_warmup_settings "$warmup_seconds" "$warmup_last" || {
+    echo 'Invalid persisted warmup settings' >&2; return 1;
+  }
+  content+=$'\n'"mp_warmuptime $warmup_seconds"
+  content+=$'\n'"mp_warmuptime_all_players_connected $warmup_seconds"
   atomic_line "$GENERATED" "$content"
   ensure_hook "$CFG_DIR/cs2server.cfg"
   for file in \
@@ -112,6 +120,12 @@ valid_bot_settings() {
   [[ "${1:-}" =~ ^(0|[1-9]|[1-5][0-9]|6[0-4])$ ]] &&
     [[ "${2:-}" =~ ^[0-3]$ ]] &&
     [[ "${3:-}" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]]
+}
+
+valid_warmup_settings() {
+  [[ "${1:-}" =~ ^(0|[1-9][0-9]{0,3})$ ]] &&
+    [[ "${2:-}" =~ ^[1-9][0-9]{0,3}$ ]] &&
+    (( 10#$1 <= 3600 && 10#$2 <= 3600 ))
 }
 
 mkdir -p "$STATE_DIR"
@@ -139,5 +153,13 @@ case "${1:-}" in
   bots-show)
     [[ -f "$BOTS_STATE" ]] && head -n 1 "$BOTS_STATE" || true
     ;;
-  *) echo "Usage: $0 {sync|set LIST|show|ids|bots-set COUNT DIFFICULTY LAST|bots-show}" >&2; exit 2 ;;
+  warmup-set)
+    valid_warmup_settings "${2:-}" "${3:-}" || { echo 'Warmup seconds must be 0-3600; last enabled duration 1-3600' >&2; exit 2; }
+    atomic_line "$WARMUP_STATE" "$2 $3"
+    sync_config
+    ;;
+  warmup-show)
+    [[ -f "$WARMUP_STATE" ]] && head -n 1 "$WARMUP_STATE" || true
+    ;;
+  *) echo "Usage: $0 {sync|set LIST|show|ids|bots-set COUNT DIFFICULTY LAST|bots-show|warmup-set SECONDS LAST|warmup-show}" >&2; exit 2 ;;
 esac

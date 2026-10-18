@@ -106,6 +106,7 @@ install -m 0755 "$REPO_DIR/scripts/cs2-rcon.py" "$CS2_DIR/cs2-rcon.py"
 install -m 0755 "$REPO_DIR/scripts/cs2-buildid.py" "$CS2_DIR/cs2-buildid.py"
 install -m 0755 "$REPO_DIR/scripts/cs2-health.sh" "$CS2_DIR/cs2-health.sh"
 install -m 0755 "$REPO_DIR/scripts/cs2-safe-update.sh" "$CS2_DIR/cs2-safe-update.sh"
+install -m 0755 "$REPO_DIR/scripts/cs2-daily-home.sh" "$CS2_DIR/cs2-daily-home.sh"
 install -m 0755 "$REPO_DIR/scripts/update-cs2.sh" "$CS2_DIR/update-cs2.sh"
 install -m 0755 "$REPO_DIR/scripts/start.sh" "$CS2_DIR/start.sh"
 if [[ -e "$CS2_HOME/update-cs2.sh" || -L "$CS2_HOME/update-cs2.sh" ]]; then
@@ -167,10 +168,23 @@ install -m 0644 "$REPO_DIR/systemd/cs2-update.service" "$UNIT_DIR/cs2-update.ser
 install -m 0644 "$REPO_DIR/systemd/cs2-update.timer" "$UNIT_DIR/cs2-update.timer"
 install -m 0644 "$REPO_DIR/systemd/cs2-checkupdate.service" "$UNIT_DIR/cs2-checkupdate.service"
 install -m 0644 "$REPO_DIR/systemd/cs2-checkupdate.timer" "$UNIT_DIR/cs2-checkupdate.timer"
+install -m 0644 "$REPO_DIR/systemd/cs2-daily-home.service" "$UNIT_DIR/cs2-daily-home.service"
+install -m 0644 "$REPO_DIR/systemd/cs2-daily-home.timer" "$UNIT_DIR/cs2-daily-home.timer"
 
 sudo loginctl enable-linger "$CS2_USER"
 systemctl --user daemon-reload
 systemctl --user enable --now cs2-ds.service
+systemctl --user enable --now cs2-daily-home.timer
+
+# Root-owned maintenance avoids granting the game account passwordless apt or
+# reboot privileges. Replace Ubuntu's floating apt timers with the player-safe
+# morning window. The script invokes the user's RCON helper only as that user.
+sudo install -m 0755 "$REPO_DIR/scripts/cs2-os-maintenance.sh" /usr/local/sbin/cs2-os-maintenance.sh
+sudo install -m 0644 "$REPO_DIR/systemd/cs2-os-maintenance@.service" /etc/systemd/system/cs2-os-maintenance@.service
+sudo install -m 0644 "$REPO_DIR/systemd/cs2-os-maintenance@.timer" /etc/systemd/system/cs2-os-maintenance@.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now "cs2-os-maintenance@${CS2_USER}.timer"
+sudo systemctl disable --now apt-daily.timer apt-daily-upgrade.timer
 if [[ "$WITH_TIMER" == 1 ]]; then
   systemctl --user enable --now cs2-update.timer
 else

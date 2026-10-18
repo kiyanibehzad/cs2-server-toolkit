@@ -16,6 +16,7 @@ printf 'cs2server:x:1000:1000::%s:/bin/bash\n' "$HOME"
 EOF
 cat > "$TEST_ROOT/bin/sudo" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TEST_ROOT/sudo-calls"
 exit 0
 EOF
 cat > "$TEST_ROOT/bin/apt-get" <<'EOF'
@@ -61,9 +62,13 @@ grep -Fq 'old manual updater' "$HOME"/update-cs2.sh.legacy-*
 [[ "$(ls -l "$HOME/cs2-ds/.update.env" | cut -c1-10)" == '-rw-------' ]]
 [[ "$(ls -l "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg" | cut -c1-10)" == '-rw-------' ]]
 [[ -x "$HOME/cs2-ds/cs2-rcon.py" && -x "$HOME/cs2-ds/cs2-config.sh" && -x "$HOME/cs2-ds/cs2-buildid.py" ]]
+[[ -x "$HOME/cs2-ds/cs2-daily-home.sh" ]]
 ! grep -Fq 'sv_setsteamaccount' "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg"
 grep -Fxq 'exec cs2_toolkit.cfg' "$HOME/cs2-ds/game/csgo/cfg/gamemode_competitive_server.cfg"
 grep -Fq 'ExecStart=%h/cs2-ds/cs2-safe-update.sh --check' "$HOME/.config/systemd/user/cs2-update.service"
+grep -Fq 'enable --now cs2-daily-home.timer' "$TEST_ROOT/systemctl-calls"
+grep -Fq 'enable --now cs2-os-maintenance@cs2server.timer' "$TEST_ROOT/sudo-calls"
+grep -Fq 'disable --now apt-daily.timer apt-daily-upgrade.timer' "$TEST_ROOT/sudo-calls"
 cp "$HOME/cs2-ds/.update.env" "$TEST_ROOT/env-before"
 cp "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg" "$TEST_ROOT/cfg-before"
 

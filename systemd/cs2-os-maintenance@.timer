@@ -1,0 +1,11 @@
+[Unit]
+Description=Try CS2 host OS maintenance each morning for %i
+
+[Timer]
+OnCalendar=*-*-* 06..11:10/10:00
+AccuracySec=1s
+Persistent=false
+Unit=cs2-os-maintenance@%i.service
+
+[Install]
+WantedBy=timers.target

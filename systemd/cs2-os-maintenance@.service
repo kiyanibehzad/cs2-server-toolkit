@@ -1,0 +1,7 @@
+[Unit]
+Description=Player-safe CS2 host OS maintenance for %i
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cs2-os-maintenance.sh %i
+TimeoutStartSec=2h

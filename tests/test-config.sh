@@ -20,6 +20,9 @@ TOOL="$REPO/scripts/cs2-config.sh"
 [[ "$(bash "$TOOL" ids)" == '9,28' ]]
 bash "$TOOL" set 'AWP, Negev, M249, G3SG1, SCAR-20' >/dev/null
 grep -Fxq 'mp_items_prohibited "9,28,14,11,38"' "$TEST_ROOT/game/csgo/cfg/cs2_toolkit.cfg"
+[[ "$(bash "$TOOL" warmup-show)" == '30 30' ]]
+grep -Fxq 'mp_warmuptime 30' "$TEST_ROOT/game/csgo/cfg/cs2_toolkit.cfg"
+grep -Fxq 'mp_warmuptime_all_players_connected 30' "$TEST_ROOT/game/csgo/cfg/cs2_toolkit.cfg"
 if grep -q '^bot_quota ' "$TEST_ROOT/game/csgo/cfg/cs2_toolkit.cfg"; then
   echo 'FAIL bot defaults changed without a saved bot choice'; exit 1
 fi
@@ -43,6 +46,11 @@ grep -Fxq 'bot_difficulty 3' "$TEST_ROOT/game/csgo/cfg/cs2_toolkit.cfg"
 grep -Fxq 'bot_quota 4' "$TEST_ROOT/game/csgo/cfg/cs2_toolkit.cfg"
 bash "$TOOL" set AWP >/dev/null
 grep -Fxq 'bot_quota 4' "$TEST_ROOT/game/csgo/cfg/cs2_toolkit.cfg"
+[[ "$(bash "$TOOL" warmup-show)" == '30 30' ]]
+bash "$TOOL" warmup-set 45 45
+bash "$TOOL" sync
+[[ "$(bash "$TOOL" warmup-show)" == '45 45' ]]
+grep -Fxq 'mp_warmuptime 45' "$TEST_ROOT/game/csgo/cfg/cs2_toolkit.cfg"
 if bash "$TOOL" bots-set '4;quit' 3 4 >/dev/null 2>&1; then
   echo 'FAIL unsafe bot setting accepted'; exit 1
 fi

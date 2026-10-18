@@ -37,6 +37,10 @@ assert_values() {
   }
 }
 for name in "${names[@]}"; do printf '0\n' > "$TEST_ROOT/$name"; done
+printf '0\n' > "$TEST_ROOT/game_type"
+printf '1\n' > "$TEST_ROOT/game_mode"
+printf '0\n' > "$TEST_ROOT/sv_skirmish_id"
+printf '1\n' > "$TEST_ROOT/sv_auto_full_alltalk_during_warmup_half_end"
 
 "$ADMIN" voice-mode both-teams > "$TEST_ROOT/output"
 assert_values '0 1 1 0 0 0'
@@ -46,16 +50,24 @@ grep -Fq 'Current: Both teams' "$TEST_ROOT/output"
 "$ADMIN" voice-mode dead-all > "$TEST_ROOT/output"
 assert_values '0 0 0 0 1 0'
 "$ADMIN" voice-mode team-dead > "$TEST_ROOT/output"
-assert_values '0 0 1 0 0 0'
+assert_values '0 0 1 0 0 1'
 "$ADMIN" voice-mode team > "$TEST_ROOT/output"
 assert_values '0 0 0 0 0 0'
 "$ADMIN" voice-mode all > "$TEST_ROOT/output"
 assert_values '1 1 1 0 0 0'
 
 : > "$EVENTS"
-TERM=xterm "$ADMIN" ui <<< $'v4\n0\ne\n' > "$TEST_ROOT/output" 2>&1
-grep -Fq 'Live Voice' "$TEST_ROOT/output"
-assert_values '0 1 1 0 0 0'
+TERM=xterm "$ADMIN" ui <<< $'v4\ne\n' > "$TEST_ROOT/output" 2>&1
+grep -Fq '[Voice: press two keys]' "$TEST_ROOT/output"
+assert_values '0 0 0 0 0 1'
+
+TERM=xterm "$ADMIN" ui <<< $'v1\ne\n' > "$TEST_ROOT/output" 2>&1
+assert_values '0 0 1 0 0 1'
+
+"$ADMIN" voice-mode team-dead > "$TEST_ROOT/output"
+assert_values '0 0 1 0 0 1'
+"$ADMIN" voice-mode default > "$TEST_ROOT/output"
+assert_values '0 0 0 0 0 1'
 
 : > "$EVENTS"
 if "$ADMIN" voice-mode 'both-teams;quit' > "$TEST_ROOT/output" 2>&1; then
@@ -69,6 +81,6 @@ if "$ADMIN" voice-mode all > "$TEST_ROOT/output" 2>&1; then
   echo 'Failed RCON write accepted' >&2; exit 1
 fi
 assert_values '0 0 0 0 0 0'
-[[ ! -e "$TEST_ROOT/game/toolkit-config/voice.txt" ]]
+[[ -f "$TEST_ROOT/game/toolkit-config/voice-baseline.txt" ]]
 
 echo 'PASS live_voice_modes_and_rollback'

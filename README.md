@@ -5,9 +5,9 @@
 
 ⚡ One-command installer and admin toolkit for Counter-Strike 2 dedicated servers.
 Includes:
-- Automatic installation and player-safe updates (via `systemd --user` timers)
+- Automatic installation, player-safe game and OS updates, and conditional host reboot
 - Interactive admin menu with Arms Race and Rush map/mode presets, plus one-key return to Competitive on Dust II
-- Persistent bot controls (on/off, kick, add multiple, exact count, difficulty), live voice controls, and weapon restrictions
+- Persistent bot controls and warmup duration, live voice controls, and weapon restrictions
 - Bans, join password, fun settings, logs, restart, and health check
 - User-level `systemd` service (auto-start after reboot with linger)
 - One safe update path for timers and manual updates
@@ -79,13 +79,13 @@ Looking for a reliable VPS or dedicated server for CS2?
   ~/admin-cs2
   ```
 
-  Press `A` to choose an Arms Race map: Pool Day, Shoots, or Baggage.
+  Press `A` to choose an Arms Race map: Pool Day, Shoots, Baggage, or Shoots Night.
   This applies the Arms Race preset and changes the map in one action. The menu
   marks maps that are not installed; choosing one leaves the current mode alone.
   Changing a live map interrupts the current match.
 
   For scripts, use `~/cs2-ds/cs2-admin.sh armsrace-map ar_pool_day` (or
-  `ar_shoots` / `ar_baggage`).
+  `ar_shoots` / `ar_baggage` / `ar_shoots_night`).
 
   Press `R` for Rush. This chooses `rush_001` and applies the Rush preset in
   one action. Valve's Rush uses one map file with arenas selected within the
@@ -94,24 +94,57 @@ Looking for a reliable VPS or dedicated server for CS2?
   Dust II is one keypress: `H` in Map Hotkeys. From a shell, use
   `~/cs2-ds/cs2-admin.sh default`.
 
-  Press `b` for Bot Management. The submenu shows the live bot count, target,
+  Press `P1` through `P6` to choose a preset, then enter its map key. For
+  example, `P1` then `1` selects Competitive + Dust II. Enter `1+2` (or `1,2`)
+  to switch to two maps in order; the last selected map remains active. The
+  whole list is checked before any switch. `P6` shows the Arms Race maps;
+  `P7` selects Rush + rush_001 directly. `P0` opens the preset list. From a
+  shell, use `~/cs2-ds/cs2-admin.sh preset-maps 1 1+2`.
+
+  Each preset shows only maps supported by its mode. `P3` uses Valve's Wingman
+  pool (Debris, El Dorado, Poseidon, Overpass, Vertigo, Nuke, Inferno); Dust II
+  is unavailable there. `P5` uses Valve's Retakes pool (Dust II, Mirage,
+  Inferno, Nuke, Overpass, Vertigo, Ancient, Train). Competitive, Casual and
+  Deathmatch keep the ten full-size defuse maps; Arms Race and Rush have their
+  own pools. A map missing from the server is marked and cannot be selected.
+  The direct map hotkeys also reject maps outside the active preset.
+
+  The Bot Management submenu (`b0`) shows the live bot count, target,
   quota mode, and difficulty. You can turn bots on, turn them off and kick
   them, add several at once, set an exact target, or choose difficulty
-  (0 easy, 1 normal, 2 hard, 3 expert). Changing difficulty recreates existing
-  bots so the new setting takes effect and disables automatic difficulty
-  adjustment. The target is a bot count in `normal`
-  quota mode; actual bots can be lower if the current game mode has no free
-  player slots. The chosen count and difficulty persist across map changes and
-  restarts. Turning bots on after turning them off restores the last count.
+  (0 easy, 1 normal, 2 hard, 3 expert). Changing difficulty updates the saved
+  setting and newly added bots without kicking every bot at once. The menu
+  refuses a target above the available player slots. The target is a bot count
+  in `normal` quota mode. The chosen count and difficulty persist across map
+  changes and restarts. Turning bots on after turning them off restores the
+  last count.
 
-  Press `v` for Live Voice. Choose team only, teammates with dead players,
-  dead players across both teams, both teams together (T + CT), or everyone
-  including spectators. The T + CT option connects the two playing teams
-  without enabling the separate spectator option. Changes apply immediately
-  through RCON; no restart is needed. From a shell, use
-  `~/cs2-ds/cs2-admin.sh voice-mode both-teams` or `voice-status`.
+  For quick use, press two keys without Enter: `b1` turns bots on, `b2` turns
+  them off and kicks them, `b3` adds several, `b4` sets an exact count, and
+  `b5` changes difficulty. `b0` opens the detailed bot menu.
+
+  The Live Voice submenu (`v0`) offers teammates together with open voice during
+  warmup/halftime/end, living teammates with dead players across both teams,
+  both playing teams together, the current mode's original voice settings,
+  strict team voice, or everyone including spectators. Changes apply
+  immediately through RCON; no restart is needed. The first voice change on
+  each map/server process saves its previous settings for the Restore option.
+  From a shell, use `~/cs2-ds/cs2-admin.sh voice-mode both-teams`,
+  `voice-mode default`, or `voice-status`.
+  In the main menu, `v1` through `v6` select those choices directly without
+  Enter; `v0` opens the detailed voice menu.
   CS2's dead-player controls affect text chat as well as voice. Voice choices
   are temporary and game mode or server restarts may reset them.
+
+  Press `W` for Warmup. The initial server-wide choice is 30 seconds, including
+  Home. Save an on/off choice and a duration from 1 to 3600 seconds; the saved
+  choice then applies on future maps and restarts. Turning warmup off
+  also ends the current warmup. From a shell, use
+  `~/cs2-ds/cs2-admin.sh warmup-set 45` or `warmup-set 0`.
+
+  Press `m` for the less frequent maintenance tools: game update, service
+  restart, logs, backup, RCON, game and OS timer status, Git menu update, and
+  health check.
 
   Run `~/cs2-ds/cs2-admin.sh health` for a read-only service, RCON, port,
   build and file-permission check. Steam/VAC login is reported as unknown when
@@ -134,6 +167,8 @@ reinstallation after a restricted backup is made.
 
 The weapon menu saves the chosen list in `~/cs2-ds/toolkit-config/blocked-weapons.txt`.
 The bot menu saves its explicit choices in `~/cs2-ds/toolkit-config/bots.txt`.
+The initial 30-second warmup and later menu choices are saved in
+`~/cs2-ds/toolkit-config/warmup.txt`.
 The toolkit generates `game/csgo/cfg/cs2_toolkit.cfg` and includes it from
 `cs2server.cfg` and the supported `gamemode_*_server.cfg` override files.
 These includes are recreated at server start. Valve's `gamemode_*.cfg` base
@@ -252,10 +287,23 @@ Use the Fun menu to spawn chickens with `ent_create chicken`. The obsolete
 
 ## 🔄 Updates
 
-Two timers invoke the same player-safe updater:
+Game updates and morning maintenance use separate timers with a shared lock:
 
 - `cs2-update.timer` → daily check at 06:00
 - `cs2-checkupdate.timer` → check every 30 minutes
+- `cs2-daily-home.timer` → from 06:00 to noon, try every five minutes until the
+  first empty moment; restart once and apply Competitive MR12 on Dust II
+- `cs2-os-maintenance@<game-user>.timer` → from 06:10 to noon, try every ten
+  minutes; update Ubuntu packages and reboot only if required and no real
+  players are online
+
+The schedule uses the server's local time. If RCON cannot confirm the number
+of real players, maintenance waits. A daily Home restart is skipped if the
+server stays occupied through the morning. The installer replaces Ubuntu's
+floating `apt-daily.timer` and `apt-daily-upgrade.timer` with the root-owned,
+player-safe OS timer. It preserves package configuration and does not remove
+packages during upgrades. OS update and reboot logs are in
+`journalctl -u cs2-os-maintenance@<game-user>.service`.
 
 When a new build is available, the updater checks the player count through
 RCON. If players are present or RCON cannot be trusted, it defers the update.

@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart empty CS2 server and restore Home preset
+
+[Service]
+Type=oneshot
+ExecStart=%h/cs2-ds/cs2-daily-home.sh
