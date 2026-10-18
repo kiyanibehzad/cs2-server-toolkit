@@ -12,6 +12,8 @@ CS2_DIR="${CS2_DIR:-$CS2_HOME/cs2-ds}"
 CONF="$CS2_DIR/.update.env"
 # shellcheck disable=SC1090
 [[ -f "$CONF" ]] && . "$CONF"
+# Bump this for every user-visible toolkit change.
+TOOLKIT_VERSION="1.0.0"
 
 # RCON / networking (fallbacks if not set in .update.env)
 RCON_HOST="${HOST_IP:-127.0.0.1}"
@@ -62,13 +64,14 @@ fi
 
 CLR_MAPS="$cyan"         # Map hotkeys section (cyan)
 CLR_BOTS="$yellow"       # Bot controls section (yellow)
-CLR_ACTIONS="$green"     # Quick actions (green)
+CLR_ACTIONS="$magenta"   # Quick actions (magenta)
 CLR_TOOLS="$blue"        # Server tools (blue)
 CLR_BANS="$magenta"      # Ban management (magenta)
 CLR_MODES="$red"         # Game modes (red)
 CLR_WEAPONS="$white"     # Weapons blocking (white)
 CLR_FUN="$cyan"          # Fun section (chickens etc.) (cyan)
 CLR_VOICE="$green"       # Live voice routing
+CLR_WARMUP="$yellow"     # Warmup settings
 CLR_EXIT="$red"          # Exit (red)
 CLR_TITLE="$magenta"     # Title/header (magenta)
 
@@ -163,8 +166,6 @@ say()         { rcon "say $*"; }
 add_bot()     { case "${1:-auto}" in ct) rcon "bot_add_ct";; t) rcon "bot_add_t";; *) rcon "bot_add";; esac; }
 remove_bots() { bot_set_count 0; }
 bot_quota()   { bot_set_count "$1"; }
-kick_all()    { rcon "kickall"; }
-
 current_map() {
   # Try to parse current map from `status` output
   local out m
@@ -693,7 +694,7 @@ warmup_menu() {
   local choice seconds
   while true; do
     echo
-    echo -e "${bold}${CLR_TOOLS}=== Warmup ===${reset}"
+    echo -e "${bold}${CLR_WARMUP}=== Warmup ===${reset}"
     warmup_status || warn 'Warmup status unavailable.'
     echo '  1) Turn on (last duration)'
     echo '  2) Turn off and end current warmup'
@@ -1648,7 +1649,7 @@ banner() {
   local jp; jp="$(get_join_password)"
 
   clear
-  echo -e "${bold}${CLR_TITLE}=== CS2 Quick Admin ===${reset}"
+  echo -e "${bold}${CLR_TITLE}=== CS2 Quick Admin v${TOOLKIT_VERSION} ===${reset}"
   echo
   if [[ -n "$jp" ]]; then
     echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT}; password ******** (hidden)"
@@ -1656,7 +1657,7 @@ banner() {
     echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT}"
   fi
   echo -e "${bold}${cyan}Hostname:${reset} ${BANNER_HOSTNAME}"
-  echo -e "${bold}${cyan}Version:${reset} ${BANNER_VERSION}"
+  echo -e "${bold}${cyan}CS2 version:${reset} ${BANNER_VERSION}"
   echo -e "${bold}${cyan}Players:${reset} ${BANNER_PLAYERS}"
   echo -e "${bold}${cyan}Status URL:${reset} ${status_url}"
   echo
@@ -1677,10 +1678,12 @@ banner() {
   echo -e "${bold}${CLR_VOICE}[Voice: press two keys]${reset}"
   echo -e "  ${CLR_VOICE}v1)${reset} Team + warmup  ${CLR_VOICE}v2)${reset} Dead both teams  ${CLR_VOICE}v3)${reset} Everyone  ${CLR_VOICE}v4)${reset} Mode default"
   echo -e "  ${CLR_VOICE}v5)${reset} Strict team  ${CLR_VOICE}v6)${reset} + Spectators  ${CLR_VOICE}v0)${reset} Menu"
-  echo -e "  ${CLR_VOICE}W)${reset} Warmup (default 30s; permanent on/off/duration)"
+  echo
+  echo -e "${bold}${CLR_WARMUP}[Warmup]${reset}"
+  echo -e "  ${CLR_WARMUP}W)${reset} On / off / duration (default 30s)"
   echo
   echo -e "${bold}${CLR_ACTIONS}[Actions]${reset}"
-  echo -e "  ${CLR_ACTIONS}s)${reset} Status       ${CLR_ACTIONS}y)${reset} Say message  ${CLR_ACTIONS}a)${reset} Kick ALL"
+  echo -e "  ${CLR_ACTIONS}s)${reset} Status       ${CLR_ACTIONS}y)${reset} Say message"
   echo
   echo -e "${bold}${CLR_TOOLS}[Tools]${reset}"
   echo -e "  ${CLR_TOOLS}m)${reset} Maintenance and server tools (updates / restart / logs / health)"
@@ -1709,7 +1712,7 @@ banner() {
   echo -e "${bold}${CLR_EXIT}[EXIT]${reset}"
   echo -e "  ${CLR_EXIT}e)${reset} Exit"
   echo
-  echo -ne "${bold}${blue}Press a key:${reset} "
+  echo -ne "${bold}${blue}Press a key (v${TOOLKIT_VERSION}):${reset} "
 }
 
 tools_menu() {
@@ -1790,7 +1793,6 @@ ui_loop() {
       # Actions
       s) status || true ;;
       y) read -rp "Message (blank=cancel): " MSG; [[ -z "$MSG" ]] && info "Cancelled." || say "$MSG" ;;
-      a) kick_all || true ;;
 
       # Less frequent maintenance commands live in one submenu.
       m) tools_menu; continue ;;
@@ -1838,7 +1840,6 @@ case "$cmd" in
   warmup-menu) warmup_menu ;;
   warmup-status) warmup_status ;;
   warmup-set) warmup_set "${1:-}" ;;
-  kick-all) kick_all ;;
   update) update_server ;;
   restart) restart_service ;;
   backup) backup_cfg ;;

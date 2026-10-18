@@ -168,9 +168,13 @@ Looking for a reliable VPS or dedicated server for CS2?
   also ends the current warmup. From a shell, use
   `~/cs2-ds/cs2-admin.sh warmup-set 45` or `warmup-set 0`.
 
+  The admin menu shows its own version in the title and input prompt, separate
+  from the CS2 game version. Warmup has its own section on the main screen.
+
   Press `m` for the less frequent maintenance tools: game update, service
   restart, logs, backup, RCON, game and OS timer status, Git menu update, and
-  health check.
+  health check. The old `Kick ALL` action was removed because `kickall` is not
+  a CS2 server command. Use `b2` to remove bots.
 
   Run `~/cs2-ds/cs2-admin.sh health` for a read-only service, RCON, port,
   build and file-permission check. Steam/VAC login is reported as unknown when

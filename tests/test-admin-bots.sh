@@ -69,6 +69,9 @@ grep -Fq '[Bots: press two keys]' "$TEST_ROOT/output"
 TERM=xterm "$ADMIN" ui <<< $'m0\ne\n' > "$TEST_ROOT/output" 2>&1
 grep -Fq 'Maintenance and Server Tools' "$TEST_ROOT/output"
 
+grep -Eq 'CS2 Quick Admin v[0-9]+\.[0-9]+\.[0-9]+' "$TEST_ROOT/output"
+grep -Fq '[Warmup]' "$TEST_ROOT/output"
+
 if "$ADMIN" bots-add '2;quit' > "$TEST_ROOT/output" 2>&1; then
   echo 'FAIL unsafe count accepted'; exit 1
 fi
