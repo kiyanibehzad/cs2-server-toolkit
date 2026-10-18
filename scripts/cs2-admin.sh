@@ -13,7 +13,7 @@ CONF="$CS2_DIR/.update.env"
 # shellcheck disable=SC1090
 [[ -f "$CONF" ]] && . "$CONF"
 # Bump this for every user-visible toolkit change.
-TOOLKIT_VERSION="1.0.0"
+TOOLKIT_VERSION="1.4.0"
 
 # RCON / networking (fallbacks if not set in .update.env)
 RCON_HOST="${HOST_IP:-127.0.0.1}"
@@ -1712,7 +1712,7 @@ banner() {
   echo -e "${bold}${CLR_EXIT}[EXIT]${reset}"
   echo -e "  ${CLR_EXIT}e)${reset} Exit"
   echo
-  echo -ne "${bold}${blue}Press a key (v${TOOLKIT_VERSION}):${reset} "
+  echo -ne "${bold}${blue}Press a key:${reset} "
 }
 
 tools_menu() {
