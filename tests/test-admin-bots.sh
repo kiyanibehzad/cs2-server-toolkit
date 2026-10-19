@@ -62,12 +62,21 @@ grep -Fxq 'bot_quota 5' "$TEST_ROOT/game/game/csgo/cfg/cs2_toolkit.cfg"
 [[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '5 3 5' ]]
 
 : > "$EVENTS"
-TERM=xterm "$ADMIN" ui <<< $'b32\n\ne\n' > "$TEST_ROOT/output" 2>&1
-grep -Fq '[Bots: press two keys]' "$TEST_ROOT/output"
+TERM=xterm "$ADMIN" ui <<< $'b3\n2\n\ne\n' > "$TEST_ROOT/output" 2>&1
+grep -Fq '[Bots: type code + Enter]' "$TEST_ROOT/output"
 [[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '7 3 7' ]]
 
-TERM=xterm "$ADMIN" ui <<< $'m0\ne\n' > "$TEST_ROOT/output" 2>&1
+TERM=xterm "$ADMIN" ui <<< $'m\n0\ne\n' > "$TEST_ROOT/output" 2>&1
 grep -Fq 'Maintenance and Server Tools' "$TEST_ROOT/output"
+
+: > "$EVENTS"
+TERM=xterm "$ADMIN" ui <<< $'b2x\n\ne\n' > "$TEST_ROOT/output" 2>&1
+grep -Fq 'Unknown bot shortcut: b2x' "$TEST_ROOT/output"
+[[ ! -s "$EVENTS" ]]
+[[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '7 3 7' ]]
+
+printf 'b2' | TERM=xterm "$ADMIN" ui > "$TEST_ROOT/output" 2>&1
+[[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '7 3 7' ]]
 
 grep -Eq 'CS2 Quick Admin v[0-9]+\.[0-9]+\.[0-9]+' "$TEST_ROOT/output"
 grep -Fq '[Warmup]' "$TEST_ROOT/output"

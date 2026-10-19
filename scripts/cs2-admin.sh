@@ -13,7 +13,7 @@ CONF="$CS2_DIR/.update.env"
 # shellcheck disable=SC1090
 [[ -f "$CONF" ]] && . "$CONF"
 # Bump this for every user-visible toolkit change.
-TOOLKIT_VERSION="1.4.0"
+TOOLKIT_VERSION="1.4.1"
 
 # RCON / networking (fallbacks if not set in .update.env)
 RCON_HOST="${HOST_IP:-127.0.0.1}"
@@ -1672,10 +1672,10 @@ banner() {
   echo -e "  ${CLR_MAPS}H)${reset} Home: Competitive MR12 + de_dust2"
   echo -e "  ${CLR_MAPS}Note:${reset} Map keys follow the active preset; P1..P7 shows its available maps."
   echo
-  echo -e "${bold}${CLR_BOTS}[Bots: press two keys]${reset}"
+  echo -e "${bold}${CLR_BOTS}[Bots: type code + Enter]${reset}"
   echo -e "  ${CLR_BOTS}b1)${reset} On  ${CLR_BOTS}b2)${reset} Off + kick  ${CLR_BOTS}b3)${reset} Add many  ${CLR_BOTS}b4)${reset} Exact count  ${CLR_BOTS}b5)${reset} Difficulty  ${CLR_BOTS}b0)${reset} Menu"
   echo
-  echo -e "${bold}${CLR_VOICE}[Voice: press two keys]${reset}"
+  echo -e "${bold}${CLR_VOICE}[Voice: type code + Enter]${reset}"
   echo -e "  ${CLR_VOICE}v1)${reset} Team + warmup  ${CLR_VOICE}v2)${reset} Dead both teams  ${CLR_VOICE}v3)${reset} Everyone  ${CLR_VOICE}v4)${reset} Mode default"
   echo -e "  ${CLR_VOICE}v5)${reset} Strict team  ${CLR_VOICE}v6)${reset} + Spectators  ${CLR_VOICE}v0)${reset} Menu"
   echo
@@ -1712,7 +1712,7 @@ banner() {
   echo -e "${bold}${CLR_EXIT}[EXIT]${reset}"
   echo -e "  ${CLR_EXIT}e)${reset} Exit"
   echo
-  echo -ne "${bold}${blue}Press a key:${reset} "
+  echo -ne "${bold}${blue}Choose (Enter to apply):${reset} "
 }
 
 tools_menu() {
@@ -1753,9 +1753,10 @@ tools_menu() {
 ui_loop() {
   while true; do
     banner
-    IFS= read -r -n1 key
+    IFS= read -r key || break
     echo
     case "$key" in
+      '') continue ;;
       1|2|3|4|5|6|7|8|9|0) map="$(map_for_key "$key")"; [[ -n "$map" ]] && change_map_hotkey "$map" || warn "Unknown key" ;;
       p) list_installed_maps || true ;;
       A) armsrace_map_menu || true ;;
@@ -1763,31 +1764,25 @@ ui_loop() {
       K) workshop_menu; continue ;;
       H) restore_default || true ;;
 
-      # Two-key shortcuts work without Enter: b1/b2/... and v1/v2/....
-      b) IFS= read -r -n1 subkey || continue; echo
-         case "$subkey" in
-           1) bot_enable || true ;;
-           2) bot_set_count 0 || true ;;
-           3) read -rp 'How many bots to add (1-64; blank=cancel): ' amount
-              [[ -z "$amount" ]] || bot_add_many "$amount" || true ;;
-           4) read -rp 'Exact bot count (0-64; blank=cancel): ' amount
-              [[ -z "$amount" ]] || bot_set_count "$amount" || true ;;
-           5) read -rp 'Difficulty (0 easy, 1 normal, 2 hard, 3 expert; blank=cancel): ' amount
-              [[ -z "$amount" ]] || bot_difficulty_set "$amount" || true ;;
-           0) bot_menu; continue ;;
-           *) warn "Unknown bot shortcut: b$subkey" ;;
-         esac ;;
-      v) IFS= read -r -n1 subkey || continue; echo
-         case "$subkey" in
-           1) voice_mode team-dead || true ;;
-           2) voice_mode dead-all || true ;;
-           3) voice_mode both-teams || true ;;
-           4) voice_mode default || true ;;
-           5) voice_mode team || true ;;
-           6) voice_mode all || true ;;
-           0) voice_menu; continue ;;
-           *) warn "Unknown voice shortcut: v$subkey" ;;
-         esac ;;
+      # Read the whole shortcut before applying it, so every action needs Enter.
+      b1) bot_enable || true ;;
+      b2) bot_set_count 0 || true ;;
+      b3) read -rp 'How many bots to add (1-64; blank=cancel): ' amount
+          [[ -z "$amount" ]] || bot_add_many "$amount" || true ;;
+      b4) read -rp 'Exact bot count (0-64; blank=cancel): ' amount
+          [[ -z "$amount" ]] || bot_set_count "$amount" || true ;;
+      b5) read -rp 'Difficulty (0 easy, 1 normal, 2 hard, 3 expert; blank=cancel): ' amount
+          [[ -z "$amount" ]] || bot_difficulty_set "$amount" || true ;;
+      b0) bot_menu; continue ;;
+      b*) warn "Unknown bot shortcut: $key" ;;
+      v1) voice_mode team-dead || true ;;
+      v2) voice_mode dead-all || true ;;
+      v3) voice_mode both-teams || true ;;
+      v4) voice_mode default || true ;;
+      v5) voice_mode team || true ;;
+      v6) voice_mode all || true ;;
+      v0) voice_menu; continue ;;
+      v*) warn "Unknown voice shortcut: $key" ;;
       W) warmup_menu; continue ;;
 
       # Actions
@@ -1801,12 +1796,10 @@ ui_loop() {
       J|j) join_password_menu ;;
       B) list_banned || true ;;
       U) unban_select || true ;;
-      P) IFS= read -r -n1 subkey || continue; echo
-         case "$subkey" in
-           0) mode_menu ;;
-           1|2|3|4|5|6|7) preset_prompt "$subkey" || true ;;
-           *) warn "Unknown preset shortcut: P$subkey" ;;
-         esac ;;
+      P0) mode_menu ;;
+      P[1-7]+*) preset_maps "${key:1:1}" "${key:3}" || true ;;
+      P[1-7]) preset_prompt "${key#P}" || true ;;
+      P*) warn "Unknown preset shortcut: $key" ;;
       C) create_custom_mode ;;
       S) edit_mode_server_cfg_menu ;;
       w) weapons_menu ;;

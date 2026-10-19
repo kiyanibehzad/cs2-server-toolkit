@@ -145,8 +145,9 @@ Looking for a reliable VPS or dedicated server for CS2?
   changes and restarts. Turning bots on after turning them off restores the
   last count.
 
-  For quick use, press two keys without Enter: `b1` turns bots on, `b2` turns
-  them off and kicks them, `b3` adds several, `b4` sets an exact count, and
+  In the main menu, type a shortcut and press Enter to apply it. For quick use,
+  `b1` turns bots on, `b2` turns them off and kicks them, `b3` adds several,
+  `b4` sets an exact count, and
   `b5` changes difficulty. `b0` opens the detailed bot menu.
 
   The Live Voice submenu (`v0`) offers teammates together with open voice during
@@ -157,8 +158,8 @@ Looking for a reliable VPS or dedicated server for CS2?
   each map/server process saves its previous settings for the Restore option.
   From a shell, use `~/cs2-ds/cs2-admin.sh voice-mode both-teams`,
   `voice-mode default`, or `voice-status`.
-  In the main menu, `v1` through `v6` select those choices directly without
-  Enter; `v0` opens the detailed voice menu.
+  In the main menu, type `v1` through `v6` and press Enter to select a choice;
+  `v0` opens the detailed voice menu after Enter.
   CS2's dead-player controls affect text chat as well as voice. Voice choices
   are temporary and game mode or server restarts may reset them.
 

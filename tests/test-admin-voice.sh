@@ -57,12 +57,17 @@ assert_values '0 0 0 0 0 0'
 assert_values '1 1 1 0 0 0'
 
 : > "$EVENTS"
-TERM=xterm "$ADMIN" ui <<< $'v4\ne\n' > "$TEST_ROOT/output" 2>&1
-grep -Fq '[Voice: press two keys]' "$TEST_ROOT/output"
+TERM=xterm "$ADMIN" ui <<< $'v4\n\ne\n' > "$TEST_ROOT/output" 2>&1
+grep -Fq '[Voice: type code + Enter]' "$TEST_ROOT/output"
 assert_values '0 0 0 0 0 1'
 
-TERM=xterm "$ADMIN" ui <<< $'v1\ne\n' > "$TEST_ROOT/output" 2>&1
+TERM=xterm "$ADMIN" ui <<< $'v1\n\ne\n' > "$TEST_ROOT/output" 2>&1
 assert_values '0 0 1 0 0 1'
+
+: > "$EVENTS"
+TERM=xterm "$ADMIN" ui <<< $'v3x\n\ne\n' > "$TEST_ROOT/output" 2>&1
+grep -Fq 'Unknown voice shortcut: v3x' "$TEST_ROOT/output"
+[[ ! -s "$EVENTS" ]]
 
 "$ADMIN" voice-mode team-dead > "$TEST_ROOT/output"
 assert_values '0 0 1 0 0 1'

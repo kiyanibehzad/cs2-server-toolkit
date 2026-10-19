@@ -141,7 +141,7 @@ echo 'PASS rush_to_competitive_with_map'
 
 "$REPO/scripts/cs2-admin.sh" mode rush rush_001 > "$TEST_ROOT/output" 2>&1
 : > "$EVENTS"
-TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'H\ne\n' > "$TEST_ROOT/output" 2>&1
+TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'H\n\ne\n' > "$TEST_ROOT/output" 2>&1
 grep -Fq 'H)' "$TEST_ROOT/output"
 grep -Fxq 'game_mode 1' "$EVENTS"
 grep -Fxq 'changelevel de_dust2' "$EVENTS"
@@ -208,7 +208,7 @@ fi
 echo 'PASS retakes_rejects_non_group_map'
 
 : > "$EVENTS"
-TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'P3\n\ne\n' > "$TEST_ROOT/output" 2>&1
+TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'P3\n\n\ne\n' > "$TEST_ROOT/output" 2>&1
 awk '/Preset 3: choose map keys/{shown=1; next} shown && count++ < 7 {print}' "$TEST_ROOT/output" > "$TEST_ROOT/preset-menu"
 grep -Fq '1) de_debris' "$TEST_ROOT/preset-menu"
 if grep -Fq 'de_dust2' "$TEST_ROOT/preset-menu"; then
@@ -218,7 +218,7 @@ echo 'PASS wingman_menu_lists_only_wingman_maps'
 
 "$REPO/scripts/cs2-admin.sh" preset-maps 3 1 > "$TEST_ROOT/output" 2>&1
 : > "$EVENTS"
-TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'1\ne\n' > "$TEST_ROOT/output" 2>&1
+TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'1\n\ne\n' > "$TEST_ROOT/output" 2>&1
 if grep -Fxq 'changelevel de_dust2' "$EVENTS"; then
   echo 'FAIL map hotkey bypassed Wingman restriction'; exit 1
 fi
