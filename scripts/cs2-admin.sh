@@ -13,7 +13,7 @@ CONF="$CS2_DIR/.update.env"
 # shellcheck disable=SC1090
 [[ -f "$CONF" ]] && . "$CONF"
 # Bump this for every user-visible toolkit change.
-TOOLKIT_VERSION="1.4.1"
+TOOLKIT_VERSION="1.4.2"
 
 # RCON / networking (fallbacks if not set in .update.env)
 RCON_HOST="${HOST_IP:-127.0.0.1}"
@@ -1699,7 +1699,7 @@ banner() {
   echo -e "  ${CLR_MODES}P3)${reset} Wingman 2v2       ${CLR_MODES}P4)${reset} Deathmatch"
   echo -e "  ${CLR_MODES}P5)${reset} Retakes           ${CLR_MODES}P6)${reset} Arms Race"
   echo -e "  ${CLR_MODES}P7)${reset} Rush (rush_001)   ${CLR_MODES}P0)${reset} Preset menu"
-  echo -e "  ${CLR_MODES}Note:${reset} P1..P6 ask for allowed map keys (1 or 1+2); P7 loads Rush."
+  echo -e "  ${CLR_MODES}Note:${reset} P1..P6 ask for map keys, or use P1 1 / P1+1; P7 loads Rush."
   echo -e "  ${CLR_MODES}C)${reset} Create custom mode (.cfg)"
   echo -e "  ${CLR_MODES}S)${reset} Edit *_server.cfg per mode (Edit+restart)"
   echo
@@ -1751,6 +1751,7 @@ tools_menu() {
 }
 
 ui_loop() {
+  local preset map_keys
   while true; do
     banner
     IFS= read -r key || break
@@ -1798,6 +1799,9 @@ ui_loop() {
       U) unban_select || true ;;
       P0) mode_menu ;;
       P[1-7]+*) preset_maps "${key:1:1}" "${key:3}" || true ;;
+      P[1-7][[:blank:]]*)
+        read -r preset map_keys <<< "$key"
+        preset_maps "${preset#P}" "$map_keys" || true ;;
       P[1-7]) preset_prompt "${key#P}" || true ;;
       P*) warn "Unknown preset shortcut: $key" ;;
       C) create_custom_mode ;;

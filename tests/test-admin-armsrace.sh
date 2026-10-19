@@ -231,6 +231,17 @@ grep -Fxq 'changelevel de_dust2' "$EVENTS"
 echo 'PASS preset_map_shortcut'
 
 : > "$EVENTS"
+TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'P1 1\n\ne\n' > "$TEST_ROOT/output" 2>&1
+grep -Fxq 'changelevel de_dust2' "$EVENTS"
+[[ "$(cat "$TEST_ROOT/game_mode")" == 1 ]]
+echo 'PASS preset_map_space_shortcut'
+
+: > "$EVENTS"
+TERM=xterm "$REPO/scripts/cs2-admin.sh" ui <<< $'P1   1+2\n\ne\n' > "$TEST_ROOT/output" 2>&1
+[[ "$(grep '^changelevel ' "$EVENTS")" == $'changelevel de_dust2\nchangelevel de_mirage' ]]
+echo 'PASS preset_map_space_sequence'
+
+: > "$EVENTS"
 if "$REPO/scripts/cs2-admin.sh" preset-maps 1 '1;quit' > "$TEST_ROOT/output" 2>&1; then
   echo 'FAIL accepted unsafe map key'; exit 1
 fi

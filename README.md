@@ -80,7 +80,8 @@ Looking for a reliable VPS or dedicated server for CS2?
   ```
 
   Type a menu choice and press Enter to apply it. This includes single-letter
-  choices, map numbers, and combined shortcuts such as `b2`, `v3`, and `P1+1`.
+  choices, map numbers, and combined shortcuts such as `b2`, `v3`, `P1 1`,
+  and `P1+1`.
 
   Press `A` to choose an Arms Race map: Pool Day, Shoots, Baggage, or Shoots Night.
   This applies the Arms Race preset and changes the map in one action. The menu
@@ -99,8 +100,8 @@ Looking for a reliable VPS or dedicated server for CS2?
 
   Type `P1` through `P6` and press Enter to choose a preset, then type its map
   key and press Enter. For example, `P1` then `1` selects Competitive + Dust II.
-  You can enter `P1+1` as one combined choice. Use `1+2` (or `1,2`) at the map
-  prompt to switch to two maps in order; the last selected map remains active.
+  You can enter `P1 1` or `P1+1` as one combined choice. Use `1+2` (or `1,2`)
+  at the map prompt to switch to two maps in order; the last selected map remains active.
   The whole list is checked before any switch. `P6` shows the Arms Race maps;
   `P7` followed by Enter selects Rush + rush_001 directly. `P0` opens the
   preset list. From a shell, use `~/cs2-ds/cs2-admin.sh preset-maps 1 1+2`.
