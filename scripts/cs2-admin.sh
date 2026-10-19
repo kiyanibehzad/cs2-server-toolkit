@@ -13,7 +13,7 @@ CONF="$CS2_DIR/.update.env"
 # shellcheck disable=SC1090
 [[ -f "$CONF" ]] && . "$CONF"
 # Bump this for every user-visible toolkit change.
-TOOLKIT_VERSION="1.4.2"
+TOOLKIT_VERSION="1.4.3"
 
 # RCON / networking (fallbacks if not set in .update.env)
 RCON_HOST="${HOST_IP:-127.0.0.1}"
@@ -1516,7 +1516,7 @@ fun_menu() {
   done
 }
 
-# ---------- JOIN PASSWORD (sv_password) ----------
+# ---------- PERSISTENT ACCESS SETTINGS ----------
 # Persist a key=value into .update.env (create or replace)
 persist_update_env() {
   local key="$1" val="$2"
@@ -1528,6 +1528,63 @@ persist_update_env() {
   printf '%s=%q\n' "$key" "$val" >> "$tmp"
   chmod 600 "$tmp"
   mv -f "$tmp" "$CONF"
+}
+
+remove_legacy_gslt_config() {
+  local cfg backup tmp
+  cfg="$(cfg_path_guess)/cs2server.cfg"
+  [[ -f "$cfg" ]] || return 0
+  grep -Eq '^[[:space:]]*sv_setsteamaccount[[:space:]]' "$cfg" || return 0
+  backup="$(mktemp "${cfg}.before-gslt-change.XXXXXX")" || return 1
+  cp -p "$cfg" "$backup" || { rm -f "$backup"; return 1; }
+  chmod 600 "$backup" || return 1
+  tmp="$(mktemp "${cfg}.XXXXXX")" || return 1
+  sed '/^[[:space:]]*sv_setsteamaccount[[:space:]]/d' "$cfg" > "$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$cfg" || { rm -f "$tmp"; return 1; }
+  info "Removed legacy token from cs2server.cfg (backup: $backup)."
+}
+
+game_token_menu() {
+  local choice token answer
+  while true; do
+    echo
+    echo -e "${bold}${CLR_TOOLS}[Game Server Login Token]${reset} (current: $( [[ -n "${GSLT:-}" ]] && echo set || echo empty ))"
+    echo '  Create a token for AppID 730: https://steamcommunity.com/dev/managegameservers'
+    echo '  1) Set or replace token'
+    echo '  0) Back'
+    read -rp 'Select: ' choice || return 0
+    case "$choice" in
+      1)
+        read -r -s -p 'New GSLT (blank=cancel): ' token || return 0
+        echo
+        [[ -n "$token" ]] || { info 'Cancelled.'; continue; }
+        [[ ${#token} -le 256 && "$token" =~ ^[A-Za-z0-9]+$ ]] || {
+          err 'Token must contain only letters and numbers (up to 256 characters).'
+          continue
+        }
+        [[ "$token" != "${GSLT:-}" ]] || { info 'This token is already saved.'; continue; }
+        read -rp 'Save new token? [y/N]: ' answer || return 0
+        [[ "$answer" == [Yy] ]] || { info 'Cancelled.'; continue; }
+        persist_update_env 'GSLT' "$token" || { err 'Could not save token.'; continue; }
+        GSLT="$token"
+        ok 'Token saved privately. It takes effect when the game service next starts.'
+        remove_legacy_gslt_config || {
+          err 'Could not remove the old token from cs2server.cfg. Check the config before restarting.'
+          continue
+        }
+        if user_unit_is_active "$SERVICE_NAME" 2>/dev/null; then
+          read -rp 'Restart game service now to apply it? [y/N]: ' answer || return 0
+          [[ "$answer" == [Yy] ]] && restart_service || true
+        fi
+        ;;
+      0|'') return 0 ;;
+      *) err 'Invalid' ;;
+    esac
+  done
 }
 
 persist_server_password() {
@@ -1686,10 +1743,7 @@ banner() {
   echo -e "  ${CLR_ACTIONS}s)${reset} Status       ${CLR_ACTIONS}y)${reset} Say message"
   echo
   echo -e "${bold}${CLR_TOOLS}[Tools]${reset}"
-  echo -e "  ${CLR_TOOLS}m)${reset} Maintenance and server tools (updates / restart / logs / health)"
-  echo
-  echo -e "${bold}${cyan}[Access]${reset}"
-  echo -e "  ${cyan}J)${reset} Join password menu"
+  echo -e "  ${CLR_TOOLS}m)${reset} Updates / restart / logs / health / token / password"
   echo
   echo -e "${bold}${CLR_BANS}[Bans]${reset}"
   echo -e "  ${CLR_BANS}B)${reset} List banned  ${CLR_BANS}U)${reset} Unban (select from list)"
@@ -1730,6 +1784,8 @@ tools_menu() {
     echo '  8) Update toolkit menu from Git'
     echo '  9) Server health check'
     echo '  10) OS update and reboot status'
+    echo '  11) Set or replace game login token (GSLT)'
+    echo '  12) Join password menu'
     echo '  0) Back'
     read -rp 'Choose: ' choice || return 0
     case "$choice" in
@@ -1744,6 +1800,8 @@ tools_menu() {
       8) update_toolkit_git || true ;;
       9) "$CS2_DIR/cs2-health.sh" || true ;;
       10) show_os_maintenance || true ;;
+      11) game_token_menu ;;
+      12) join_password_menu ;;
       0|'') return 0 ;;
       *) warn 'Unknown option.' ;;
     esac
@@ -1793,8 +1851,7 @@ ui_loop() {
       # Less frequent maintenance commands live in one submenu.
       m) tools_menu; continue ;;
 
-      # Access / Bans / Modes / Weapons / Fun
-      J|j) join_password_menu ;;
+      # Bans / Modes / Weapons / Fun
       B) list_banned || true ;;
       U) unban_select || true ;;
       P0) mode_menu ;;
@@ -1860,6 +1917,7 @@ case "$cmd" in
   list-banned) list_banned ;;
   unban-select) unban_select ;;
   join-pass-menu) join_password_menu ;;
+  game-token-menu) game_token_menu ;;
   safe-update) safe_update_now ;;
   show-timer) show_update_timer ;;
   show-os-maintenance) show_os_maintenance ;;

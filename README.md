@@ -1,6 +1,6 @@
 # CS2 Server Toolkit
 
-![Untitled-1](https://github.com/user-attachments/assets/92064f95-45fa-4700-982d-e96a972f3f2a)
+![CS2 Quick Admin v1.4.3 with a documentation-only server address](docs/images/admin-menu-v1.4.3.png)
 
 
 ⚡ One-command installer and admin toolkit for Counter-Strike 2 dedicated servers.
@@ -8,7 +8,7 @@ Includes:
 - Automatic installation, player-safe game and OS updates, and conditional host reboot
 - Interactive admin menu with official and Workshop map presets, plus a Home shortcut for Competitive on Dust II
 - Persistent bot controls and warmup duration, live voice controls, and weapon restrictions
-- Bans, join password, fun settings, logs, restart, and health check
+- Bans, game login token and join password management, fun settings, logs, restart, and health check
 - User-level `systemd` service (auto-start after reboot with linger)
 - One safe update path for timers and manual updates
 - Source RCON client that reads split responses and keeps the RCON password out of its command line
@@ -178,9 +178,16 @@ Looking for a reliable VPS or dedicated server for CS2?
   game version. Warmup has its own section on the main screen.
 
   Press `m` for the less frequent maintenance tools: game update, service
-  restart, logs, backup, RCON, game and OS timer status, Git menu update, and
-  health check. The old `Kick ALL` action was removed because `kickall` is not
-  a CS2 server command. Use `b2` to remove bots.
+  restart, logs, backup, RCON, game and OS timer status, Git menu update,
+  health check, login token and join password. Use `m` → `11` to enter a new
+  [Game Server Login Token](https://steamcommunity.com/dev/managegameservers).
+  The token is entered without echoing it on screen and saved in `.update.env`.
+  If the game service is running, the menu offers to restart it so the new token
+  takes effect; otherwise it is used at the next start. If an older
+  `cs2server.cfg` still has a token, the menu saves a private backup and removes
+  that duplicate. Use `m` → `12` to set or clear the join password. The old
+  `Kick ALL` action was removed because `kickall` is not a CS2 server command.
+  Use `b2` to remove bots.
 
   Run `~/cs2-ds/cs2-admin.sh health` for a read-only service, RCON, port,
   build and file-permission check. Steam/VAC login is reported as unknown when

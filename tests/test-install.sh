@@ -91,6 +91,29 @@ if grep -Fq 'new-pass' "$TEST_ROOT/admin-output"; then
 fi
 echo 'PASS join_password_persistence'
 
+printf 'sv_setsteamaccount "oldtoken"\n' >> "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg"
+printf '1\ninvalid token\n1\nnewtoken123456\ny\n0\n' | "$HOME/cs2-ds/cs2-admin.sh" game-token-menu > "$TEST_ROOT/admin-output"
+grep -Fxq 'GSLT=newtoken123456' "$HOME/cs2-ds/.update.env"
+[[ "$(grep -c '^GSLT=' "$HOME/cs2-ds/.update.env")" -eq 1 ]]
+[[ "$(ls -l "$HOME/cs2-ds/.update.env" | cut -c1-10)" == '-rw-------' ]]
+! grep -Fq 'sv_setsteamaccount' "$HOME/cs2-ds/game/csgo/cfg/cs2server.cfg"
+grep -Fq 'sv_setsteamaccount "oldtoken"' "$HOME"/cs2-ds/game/csgo/cfg/cs2server.cfg.before-gslt-change.*
+if grep -Fq 'newtoken123456' "$TEST_ROOT/admin-output"; then
+  echo 'FAIL token exposed in admin output'
+  exit 1
+fi
+! grep -Fq -- '--user restart cs2-ds' "$TEST_ROOT/systemctl-calls"
+echo 'PASS game_token_persistence'
+
+TERM=xterm "$HOME/cs2-ds/cs2-admin.sh" ui <<< $'m\n0\ne\n' > "$TEST_ROOT/admin-output" 2>&1
+grep -Fq '11) Set or replace game login token (GSLT)' "$TEST_ROOT/admin-output"
+grep -Fq '12) Join password menu' "$TEST_ROOT/admin-output"
+if grep -Eq '\[Access\]|J\) Join password menu' "$TEST_ROOT/admin-output"; then
+  echo 'FAIL password shortcut still on main menu'
+  exit 1
+fi
+echo 'PASS access_settings_in_tools'
+
 cat > "$HOME/cs2-ds/game/bin/linuxsteamrt64/cs2" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$TEST_ROOT/launch-args"
@@ -98,6 +121,6 @@ EOF
 chmod +x "$HOME/cs2-ds/game/bin/linuxsteamrt64/cs2"
 "$HOME/cs2-ds/start.sh"
 grep -Fxq '+sv_setsteamaccount' "$TEST_ROOT/launch-args"
-grep -Fxq 'test-token' "$TEST_ROOT/launch-args"
+grep -Fxq 'newtoken123456' "$TEST_ROOT/launch-args"
 grep -Fxq '+game_type' "$TEST_ROOT/launch-args"
 echo 'PASS launcher_reads_gslt_and_mode'
