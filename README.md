@@ -6,7 +6,7 @@
 ⚡ One-command installer and admin toolkit for Counter-Strike 2 dedicated servers.
 Includes:
 - Automatic installation, player-safe game and OS updates, and conditional host reboot
-- Interactive admin menu with official and Workshop map presets, plus one-key return to Competitive on Dust II
+- Interactive admin menu with official and Workshop map presets, plus a Home shortcut for Competitive on Dust II
 - Persistent bot controls and warmup duration, live voice controls, and weapon restrictions
 - Bans, join password, fun settings, logs, restart, and health check
 - User-level `systemd` service (auto-start after reboot with linger)
@@ -79,6 +79,9 @@ Looking for a reliable VPS or dedicated server for CS2?
   ~/admin-cs2
   ```
 
+  Type a menu choice and press Enter to apply it. This includes single-letter
+  choices, map numbers, and combined shortcuts such as `b2`, `v3`, and `P1+1`.
+
   Press `A` to choose an Arms Race map: Pool Day, Shoots, Baggage, or Shoots Night.
   This applies the Arms Race preset and changes the map in one action. The menu
   marks maps that are not installed; choosing one leaves the current mode alone.
@@ -91,15 +94,16 @@ Looking for a reliable VPS or dedicated server for CS2?
   one action. Valve's Rush uses one map file with arenas selected within the
   match. The option is available when the map is installed. From a shell, use
   `~/cs2-ds/cs2-admin.sh rush-map rush_001`. Switching back to Competitive on
-  Dust II is one keypress: `H` in Map Hotkeys. From a shell, use
+  Dust II uses `H` followed by Enter in Map Hotkeys. From a shell, use
   `~/cs2-ds/cs2-admin.sh default`.
 
-  Press `P1` through `P6` to choose a preset, then enter its map key. For
-  example, `P1` then `1` selects Competitive + Dust II. Enter `1+2` (or `1,2`)
-  to switch to two maps in order; the last selected map remains active. The
-  whole list is checked before any switch. `P6` shows the Arms Race maps;
-  `P7` selects Rush + rush_001 directly. `P0` opens the preset list. From a
-  shell, use `~/cs2-ds/cs2-admin.sh preset-maps 1 1+2`.
+  Type `P1` through `P6` and press Enter to choose a preset, then type its map
+  key and press Enter. For example, `P1` then `1` selects Competitive + Dust II.
+  You can enter `P1+1` as one combined choice. Use `1+2` (or `1,2`) at the map
+  prompt to switch to two maps in order; the last selected map remains active.
+  The whole list is checked before any switch. `P6` shows the Arms Race maps;
+  `P7` followed by Enter selects Rush + rush_001 directly. `P0` opens the
+  preset list. From a shell, use `~/cs2-ds/cs2-admin.sh preset-maps 1 1+2`.
 
   Each preset shows only maps supported by its mode. `P3` uses Valve's Wingman
   pool (Debris, El Dorado, Poseidon, Overpass, Vertigo, Nuke, Inferno); Dust II
@@ -147,8 +151,8 @@ Looking for a reliable VPS or dedicated server for CS2?
 
   In the main menu, type a shortcut and press Enter to apply it. For quick use,
   `b1` turns bots on, `b2` turns them off and kicks them, `b3` adds several,
-  `b4` sets an exact count, and
-  `b5` changes difficulty. `b0` opens the detailed bot menu.
+  `b4` sets an exact count, and `b5` changes difficulty. `b0` opens the detailed
+  bot menu.
 
   The Live Voice submenu (`v0`) offers teammates together with open voice during
   warmup/halftime/end, living teammates with dead players across both teams,
@@ -372,8 +376,8 @@ The installer restricts `.update.env` and `cs2server.cfg` to the game user.
 Do not commit these files or paste their contents into an issue: they hold
 RCON credentials and possibly the GSLT.
 
-References: [Valve's CS2 server launch example](https://github.com/ValveSoftware/counter-strike_rules_and_regs/blob/main/major-supplemental-rulebook.md),
-[Valve Developer Community game modes](https://developer.valvesoftware.com/wiki/Counter-Strike:_Global_Offensive/Game_Modes),
+References: [Valve Developer Community CS2 dedicated servers](https://developer.valvesoftware.com/wiki/Counter-Strike_2/Dedicated_Servers),
+[Valve Developer Community legacy game-mode configuration](https://developer.valvesoftware.com/wiki/Counter-Strike:_Global_Offensive/Game_Modes),
 [SteamCMD](https://developer.valvesoftware.com/wiki/SteamCMD), and
 [Source RCON protocol](https://developer.valvesoftware.com/wiki/Source_RCON_Protocol).
 
