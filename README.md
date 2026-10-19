@@ -1,206 +1,94 @@
 # CS2 Server Toolkit
 
-![CS2 Quick Admin v1.4.3 with a documentation-only server address](docs/images/admin-menu-v1.4.3.png)
+A guided installer and terminal admin console for Counter-Strike 2 dedicated servers on Ubuntu. Set up a server with a few commands and prompts, then manage matches and maintenance from one menu.
 
+The installer downloads CS2 through SteamCMD, creates a user-level `systemd` service, and configures scheduled updates. It can be run again to refresh toolkit files while preserving the game installation and server settings.
 
-⚡ One-command installer and admin toolkit for Counter-Strike 2 dedicated servers.
-Includes:
-- Automatic installation, player-safe game and OS updates, and conditional host reboot
-- Interactive admin menu with official and Workshop map presets, plus a Home shortcut for Competitive on Dust II
-- Persistent bot controls and warmup duration, live voice controls, and weapon restrictions
-- Bans, game login token and join password management, fun settings, logs, restart, and health check
-- User-level `systemd` service (auto-start after reboot with linger)
-- One safe update path for timers and manual updates
-- Source RCON client that reads split responses and keeps the RCON password out of its command line
+## Features
 
----
+- **Guided setup:** Installs the game and required tools, creates the service, and starts the server.
+- **Match control:** Switch between supported modes and maps, manage bots, voice, warmup, weapon restrictions, and bans from `~/admin-cs2`.
+- **Workshop support:** Add individual maps or a public collection and save a Competitive, AWP, or Scout profile for each map.
+- **Player-aware maintenance:** Check for game updates, defer disruptive work while players are online, and schedule OS updates and reboots when the server is empty.
+- **Server operations:** View health and logs, run RCON commands, restart the service, and manage the join password or Steam game server login token.
 
-## ☁️ Hosting Recommendation
+## Requirements
 
-Looking for a reliable VPS or dedicated server for CS2?  
-👉 [Order from iShosting with my referral link](https://ishosting.com/affiliate/NDk5OSM2)
+- Ubuntu 24.04 on a VPS or dedicated server
+- At least 4 GB RAM (8 GB or more recommended) and about 60 GB free disk space
+- A non-root Linux account with `sudo` access for installation
+- A [Steam Game Server Login Token](https://steamcommunity.com/dev/managegameservers) for a public server
 
----
+## Quick start
 
-## 🖥 Requirements
+Create a dedicated game account, then switch to it:
 
-- **OS**: Ubuntu 24.04 (fresh VPS or dedicated server recommended)  
-- **RAM**: 4 GB minimum (8 GB+ recommended)  
-- **Disk**: ~60 GB free  
-- **User**: Non-root user (e.g. `cs2server`)  
+```bash
+sudo adduser cs2server
+sudo usermod -aG sudo cs2server
+su - cs2server
+```
 
----
+Clone the repository and run the guided installer:
 
-## 🚀 Quick Start
+```bash
+git clone https://github.com/kiyanibehzad/cs2-server-toolkit.git
+cd cs2-server-toolkit
+./install.sh
+```
 
-1. **Create user**
-   ```bash
-   sudo adduser cs2server
-   sudo usermod -aG sudo cs2server
-   su - cs2server
-   ```
+The installer asks for the public server IP, RCON password, server name, and optional join password and GSLT. Run it as the game account, not root. The first installation downloads CS2 and may take time depending on your connection.
 
-2. **Clone repository**
-   ```bash
-   git clone https://github.com/kiyanibehzad/cs2-server-toolkit.git
-   cd cs2-server-toolkit
-   ```
+Open the admin console after installation:
 
-3. **Run installer**
-   ```bash
-   chmod +x install.sh
-   ./install.sh
-   ```
-   The installer will ask for these values on the first run:
-   - Public server IP (Your server or virtual machine IP)
-   - RCON password (Mandatory)
-   - Server name (Seen on Steam/Game)
-   - Optional join password (It is recommended)
-   - [Game Server Login Token (GSLT)](https://steamcommunity.com/dev/managegameservers)
+```bash
+~/admin-cs2
+```
 
-   Run the installer as the game user, not root. Running it again refreshes the
-   toolkit files and systemd units while keeping existing game data and settings.
-   To update the game itself, use the updater below.
-   If an older `~/update-cs2.sh` exists, the installer saves it with a
-   `.legacy-<timestamp>` suffix before replacing it with the safe entry point.
+## Admin console
 
----
+![CS2 admin console using a sample, non-routable IP address](docs/images/admin-menu-v1.4.3.png)
 
-## 🎮 Usage
+Type a choice and press Enter to apply it. The menu groups everyday controls on the main screen and puts maintenance and credentials under **Tools** (`m`).
 
-- **Start/stop server**  
-  ```bash
-  systemctl --user start cs2-ds
-  systemctl --user stop cs2-ds
-  ```
+| Control | What it does |
+| --- | --- |
+| `H` | Return to the default Competitive MR12 preset on Dust II. |
+| `P1`–`P7` | Choose a game preset and a compatible map. `P1 1` selects Competitive on Dust II. |
+| `A`, `R` | Start Arms Race or Rush with their supported map. |
+| `K` | Browse added Workshop maps and collections; play a map with its saved profile. |
+| `b1`–`b5`, `b0` | Enable or remove bots, change their count and difficulty, or open the full bot menu. |
+| `v1`–`v6`, `v0` | Change live voice rules or restore the current mode's defaults. |
+| `W`, `w` | Set persistent warmup and weapon restrictions. |
+| `m` | Open update, service, log, health, token, and join-password tools. |
 
-- **Run admin menu**
-  ```bash
-  ~/admin-cs2
-  ```
+### Modes and maps
 
-  Type a menu choice and press Enter to apply it. This includes single-letter
-  choices, map numbers, and combined shortcuts such as `b2`, `v3`, `P1 1`,
-  and `P1+1`.
+Preset choices show only maps supported by the selected mode and installed on the server. Competitive, Casual, Wingman, Deathmatch, Retakes, Arms Race, and Rush have separate map pools. Use `P1 1` or `P1+1` to select a preset and map together; enter several map keys such as `1+2` to apply them in order. The final map stays active. Changing a live map interrupts the current match.
 
-  Press `A` to choose an Arms Race map: Pool Day, Shoots, Baggage, or Shoots Night.
-  This applies the Arms Race preset and changes the map in one action. The menu
-  marks maps that are not installed; choosing one leaves the current mode alone.
-  Changing a live map interrupts the current match.
+The Home shortcut (`H`) restores Competitive MR12 on Dust II. For scripts, the same action is `~/cs2-ds/cs2-admin.sh default`.
 
-  For scripts, use `~/cs2-ds/cs2-admin.sh armsrace-map ar_pool_day` (or
-  `ar_shoots` / `ar_baggage` / `ar_shoots_night`).
+### Workshop maps
 
-  Press `R` for Rush. This chooses `rush_001` and applies the Rush preset in
-  one action. Valve's Rush uses one map file with arenas selected within the
-  match. The option is available when the map is installed. From a shell, use
-  `~/cs2-ds/cs2-admin.sh rush-map rush_001`. Switching back to Competitive on
-  Dust II uses `H` followed by Enter in Map Hotkeys. From a shell, use
-  `~/cs2-ds/cs2-admin.sh default`.
+Open `K` to add a map by Workshop URL or connect a public Workshop collection. Each map can use the Competitive, AWP-only, or Scout-only profile. The toolkit saves the collection and map profiles across updates. A personal Steam subscription on your PC does not automatically add that item to the server menu; use a map URL or public collection instead. The first map download may take time.
 
-  Type `P1` through `P6` and press Enter to choose a preset, then type its map
-  key and press Enter. For example, `P1` then `1` selects Competitive + Dust II.
-  You can enter `P1 1` or `P1+1` as one combined choice. Use `1+2` (or `1,2`)
-  at the map prompt to switch to two maps in order; the last selected map remains active.
-  The whole list is checked before any switch. `P6` shows the Arms Race maps;
-  `P7` followed by Enter selects Rush + rush_001 directly. `P0` opens the
-  preset list. From a shell, use `~/cs2-ds/cs2-admin.sh preset-maps 1 1+2`.
+### Bots, voice, and warmup
 
-  Each preset shows only maps supported by its mode. `P3` uses Valve's Wingman
-  pool (Debris, El Dorado, Poseidon, Overpass, Vertigo, Nuke, Inferno); Dust II
-  is unavailable there. `P5` uses Valve's Retakes pool (Dust II, Mirage,
-  Inferno, Nuke, Overpass, Vertigo, Ancient, Train). Competitive, Casual and
-  Deathmatch keep the ten full-size defuse maps; Arms Race and Rush have their
-  own pools. A map missing from the server is marked and cannot be selected.
-  The direct map hotkeys also reject maps outside the active preset.
+Bot count and difficulty settings persist across map changes and restarts. The voice shortcuts change live communication rules through RCON; `v4` restores the current mode's original voice settings. Voice choices are temporary and may reset when the mode or server restarts. `W` saves whether warmup is enabled and its duration; the initial server-wide duration is 30 seconds.
 
-  Press `K` for Workshop maps. Paste an individual Workshop map link under
-  `K` → `a`; the map then appears in the menu. For example, use the link to
-  [awp_india](https://steamcommunity.com/sharedfiles/filedetails/?id=3070290869).
-  Use `K` → `d` to remove an individually added map. Steam's public API does
-  not expose your personal subscribed-item list to a community server, so
-  subscribing on your PC alone cannot populate this menu. To keep a larger
-  list together, put those maps in a [Steam Workshop Collection](https://steamcommunity.com/workshop/browse/?appid=730&section=collections)
-  and enter its link once under `K` → `c`. Opening `K` refreshes that list;
-  `r` refreshes it again, and `x` clears the collection without removing maps
-  added individually. If Steam is unavailable, the last saved list remains
-  visible. Only CS2 items tagged as maps are shown, so weapon finishes are
-  skipped. Collections must be visible to Steam's public API. Selecting a map
-  asks CS2 to download its current Workshop version and switch to it. The
-  first download can take time and changing maps interrupts a live match.
+### Maintenance and access
 
-  Each Workshop map starts with the Competitive preset. Under `K` → `p`, save
-  `AWP only` or `Scout only` for that map. Selecting its number then applies
-  the saved preset with the map. These sniper presets give both teams the
-  chosen rifle on spawn, remove the default pistol and buying, and give
-  armor. `H` returns to the standard Competitive + Dust II equipment.
-  The collection and saved presets live in `~/cs2-ds/toolkit-config/workshop.json`
-  and survive toolkit updates. For scripts, use `workshop-set-collection URL`,
-  `workshop-refresh`, `workshop-add-map URL`, `workshop-list`,
-  `workshop-set-profile ID awp|scout|competitive`,
-  and `workshop-play ID [preset]` with `~/cs2-ds/cs2-admin.sh`.
+The **Tools** menu (`m`) contains game updates, service restart, logs, config backup, RCON, timer status, and health checks. Use `m` → `11` to replace the GSLT and `m` → `12` to set or clear the join password. The token is entered without echoing it, saved privately, and used at the next game start; when the service is running, the menu offers a restart to apply it immediately.
 
-  The Bot Management submenu (`b0`) shows the live bot count, target,
-  quota mode, and difficulty. You can turn bots on, turn them off and kick
-  them, add several at once, set an exact target, or choose difficulty
-  (0 easy, 1 normal, 2 hard, 3 expert). Changing difficulty updates the saved
-  setting and newly added bots without kicking every bot at once. The menu
-  refuses a target above the available player slots. The target is a bot count
-  in `normal` quota mode. The chosen count and difficulty persist across map
-  changes and restarts. Turning bots on after turning them off restores the
-  last count.
+Start or stop the game service directly when needed:
 
-  In the main menu, type a shortcut and press Enter to apply it. For quick use,
-  `b1` turns bots on, `b2` turns them off and kicks them, `b3` adds several,
-  `b4` sets an exact count, and `b5` changes difficulty. `b0` opens the detailed
-  bot menu.
+```bash
+systemctl --user start cs2-ds
+systemctl --user stop cs2-ds
+journalctl --user -u cs2-ds -f
+```
 
-  The Live Voice submenu (`v0`) offers teammates together with open voice during
-  warmup/halftime/end, living teammates with dead players across both teams,
-  both playing teams together, the current mode's original voice settings,
-  strict team voice, or everyone including spectators. Changes apply
-  immediately through RCON; no restart is needed. The first voice change on
-  each map/server process saves its previous settings for the Restore option.
-  From a shell, use `~/cs2-ds/cs2-admin.sh voice-mode both-teams`,
-  `voice-mode default`, or `voice-status`.
-  In the main menu, type `v1` through `v6` and press Enter to select a choice;
-  `v0` opens the detailed voice menu after Enter.
-  CS2's dead-player controls affect text chat as well as voice. Voice choices
-  are temporary and game mode or server restarts may reset them.
-
-  Press `W` for Warmup. The initial server-wide choice is 30 seconds, including
-  Home. Save an on/off choice and a duration from 1 to 3600 seconds; the saved
-  choice then applies on future maps and restarts. Turning warmup off
-  also ends the current warmup. From a shell, use
-  `~/cs2-ds/cs2-admin.sh warmup-set 45` or `warmup-set 0`.
-
-  The admin menu shows its own version in the title, separate from the CS2
-  game version. Warmup has its own section on the main screen.
-
-  Press `m` for the less frequent maintenance tools: game update, service
-  restart, logs, backup, RCON, game and OS timer status, Git menu update,
-  health check, login token and join password. Use `m` → `11` to enter a new
-  [Game Server Login Token](https://steamcommunity.com/dev/managegameservers).
-  The token is entered without echoing it on screen and saved in `.update.env`.
-  If the game service is running, the menu offers to restart it so the new token
-  takes effect; otherwise it is used at the next start. If an older
-  `cs2server.cfg` still has a token, the menu saves a private backup and removes
-  that duplicate. Use `m` → `12` to set or clear the join password. The old
-  `Kick ALL` action was removed because `kickall` is not a CS2 server command.
-  Use `b2` to remove bots.
-
-  Run `~/cs2-ds/cs2-admin.sh health` for a read-only service, RCON, port,
-  build and file-permission check. Steam/VAC login is reported as unknown when
-  the game does not expose a reliable status signal.
-
-- **Check logs**
-  ```bash
-  journalctl --user -u cs2-ds -f
-  ```
-
----
-
-## ⚙️ Configuration and game modes
+## Configuration and game modes
 
 `.update.env` holds the toolkit's private launch settings, including GSLT,
 network settings and RCON credentials. `start.sh` reads it on every start.
@@ -319,16 +207,16 @@ Use the Fun menu to spawn chickens with `ent_create chicken`. The obsolete
   ```
   (replace filename with your target mode)
 
-### Tips & best practices
+### Configuration notes
 
 - Keep permanent, “always-on” rules in the relevant `*_server.cfg`.  
 - Use the admin menu for temporary Fun commands and the persistent weapon list.
-- If a setting is fighty (e.g., a menu preset also sets it), the last executed file wins.  
+- If a menu preset also changes a setting, the last executed configuration takes precedence.
 - You can create **per-map** overrides using `mapname.cfg` (e.g., `de_mirage.cfg`) if needed.
 
 ---
 
-## 🔄 Updates
+## Updates and scheduled maintenance
 
 Game updates and morning maintenance use separate timers with a shared lock:
 
@@ -391,9 +279,14 @@ References: [Valve Developer Community CS2 dedicated servers](https://developer.
 
 ---
 
-## 💸 Support / Donate
+## Hosting
 
-If you like this project, consider supporting development ❤️
+If you need a VPS or dedicated server for CS2, you can use the author's
+[iShosting referral link](https://ishosting.com/affiliate/NDk5OSM2).
+
+## Support
+
+If this toolkit is useful, you can support its maintenance:
 
 - **USDT (TRC20):** `TGhctG46AciRXEudjEereW8DGvoErdkqta`  
 - **USDT (BSC):** `0xCBC1861Ed594a9e39a6995e70067931A955831b6`  
@@ -401,6 +294,6 @@ If you like this project, consider supporting development ❤️
 
 ---
 
-## 📜 License
+## License
 
 MIT License © 2025 [Behzad Kiyani](https://github.com/kiyanibehzad)
