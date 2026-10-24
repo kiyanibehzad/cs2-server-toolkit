@@ -253,6 +253,8 @@ fi
 [[ "$(cat "$TEST_ROOT/sv_skirmish_id")" == 0 ]]
 [[ "$(cat "$TEST_ROOT/mp_overtime_enable")" == 1 ]]
 [[ "$(cat "$TEST_ROOT/mp_overtime_maxrounds")" == 6 ]]
+[[ "$(cat "$TEST_ROOT/mp_halftime_pausetimer")" == 0 ]]
+[[ "$(cat "$TEST_ROOT/mp_overtime_halftime_pausetimer")" == 0 ]]
 [[ "$(cat "$TEST_ROOT/bot_quota")" == 0 ]]
 echo 'PASS retakes_to_competitive'
 

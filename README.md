@@ -47,7 +47,7 @@ Open the admin console after installation:
 
 ## Admin console
 
-![CS2 admin console using a sample, non-routable IP address](docs/images/admin-menu-v1.4.3.png)
+![CS2 admin console using a sample, non-routable IP address](docs/images/admin-menu-v1.4.4.png)
 
 Type a choice and press Enter to apply it. The menu groups everyday controls on the main screen and puts maintenance and credentials under **Tools** (`m`).
 
@@ -74,7 +74,7 @@ Open `K` to add a map by Workshop URL or connect a public Workshop collection. E
 
 ### Bots, voice, and warmup
 
-Bot count and difficulty settings persist across map changes and restarts. The voice shortcuts change live communication rules through RCON; `v4` restores the current mode's original voice settings. Voice choices are temporary and may reset when the mode or server restarts. `W` saves whether warmup is enabled and its duration; the initial server-wide duration is 30 seconds.
+Bot count and difficulty settings persist across map changes and restarts. The voice shortcuts change live communication rules through RCON and enable server voice when a live mode is selected; `v4` restores the current mode's original voice settings. The voice status also shows whether server voice is enabled. Voice choices are temporary and may reset when the mode or server restarts. `W` saves whether warmup is enabled and its duration; the initial server-wide duration is 30 seconds.
 
 ### Maintenance and access
 
@@ -150,6 +150,8 @@ mp_maxrounds 24
 mp_halftime 1
 mp_overtime_enable 1
 mp_overtime_maxrounds 6
+mp_halftime_pausetimer 0
+mp_overtime_halftime_pausetimer 0
 mp_freezetime 15
 mp_roundtime 1.92
 mp_round_restart_delay 7

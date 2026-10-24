@@ -139,7 +139,8 @@ if [[ ! -f "$CFG" ]]; then
     printf 'rcon_password "%s"\n' "$RCON_PASS"
     printf 'sv_password "%s"\n' "$SERVER_PASS"
     printf '%s\n' 'sv_lan 0' 'bot_quota 0' 'mp_maxrounds 24' 'mp_halftime 1' \
-      'mp_overtime_enable 1' 'mp_overtime_maxrounds 6' 'mp_freezetime 15' \
+      'mp_halftime_pausetimer 0' 'mp_overtime_enable 1' 'mp_overtime_maxrounds 6' \
+      'mp_overtime_halftime_pausetimer 0' 'mp_freezetime 15' \
       'mp_buytime 20' 'mp_autokick 0'
   } > "$CFG"
 fi

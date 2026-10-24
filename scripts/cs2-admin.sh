@@ -13,7 +13,7 @@ CONF="$CS2_DIR/.update.env"
 # shellcheck disable=SC1090
 [[ -f "$CONF" ]] && . "$CONF"
 # Bump this for every user-visible toolkit change.
-TOOLKIT_VERSION="1.4.3"
+TOOLKIT_VERSION="1.4.4"
 
 # RCON / networking (fallbacks if not set in .update.env)
 RCON_HOST="${HOST_IP:-127.0.0.1}"
@@ -533,7 +533,7 @@ verify_convar() {
 
 # ---------- LIVE VOICE ----------
 # These are live server cvars only. No toolkit cfg or mode defaults are edited.
-VOICE_NAMES=(sv_full_alltalk sv_alltalk sv_deadtalk sv_talk_enemy_living sv_talk_enemy_dead sv_auto_full_alltalk_during_warmup_half_end)
+VOICE_NAMES=(sv_full_alltalk sv_alltalk sv_deadtalk sv_talk_enemy_living sv_talk_enemy_dead sv_auto_full_alltalk_during_warmup_half_end sv_voiceenable)
 VOICE_BASELINE="$CS2_DIR/toolkit-config/voice-baseline.txt"
 voice_read() {
   local name value
@@ -549,16 +549,16 @@ voice_status() {
   voice_read || return 1
   local mode='Custom'
   case "${VOICE_VALUES[*]}" in
-    '0 0 0 0 0 0') mode='Team only' ;;
-    '0 0 1 0 0 1') mode='Team together; open during warmup/half/end' ;;
-    '0 0 0 0 1 0') mode='Dead across teams' ;;
-    '0 1 1 0 0 0') mode='Both teams' ;;
-    '1 1 1 0 0 0') mode='Everyone, including spectators' ;;
+    '0 0 0 0 0 0 1') mode='Team only' ;;
+    '0 0 1 0 0 1 1') mode='Team together; open during warmup/half/end' ;;
+    '0 0 0 0 1 0 1') mode='Dead across teams' ;;
+    '0 1 1 0 0 1 1') mode='Both teams' ;;
+    '1 1 1 0 0 1 1') mode='Everyone, including spectators' ;;
   esac
   printf 'Current: %s\n' "$mode"
-  printf 'Full/all teams: %s/%s | Dead to living: %s | Enemy living/dead: %s/%s | Auto warmup: %s\n' \
+  printf 'Full/all teams: %s/%s | Dead to living: %s | Enemy living/dead: %s/%s | Auto warmup: %s | Voice enabled: %s\n' \
     "${VOICE_VALUES[0]}" "${VOICE_VALUES[1]}" "${VOICE_VALUES[2]}" \
-    "${VOICE_VALUES[3]}" "${VOICE_VALUES[4]}" "${VOICE_VALUES[5]}"
+    "${VOICE_VALUES[3]}" "${VOICE_VALUES[4]}" "${VOICE_VALUES[5]}" "${VOICE_VALUES[6]}"
 }
 
 voice_signature() {
@@ -577,7 +577,7 @@ voice_baseline() {
   if [[ -f "$VOICE_BASELINE" ]]; then
     IFS= read -r saved_signature < "$VOICE_BASELINE"
     saved_values="$(sed -n '2p' "$VOICE_BASELINE")"
-    if [[ "$saved_signature" == "$signature" && "$saved_values" =~ ^[01](\ [01]){5}$ ]]; then
+    if [[ "$saved_signature" == "$signature" && "$saved_values" =~ ^[01](\ [01]){6}$ ]]; then
       read -r -a VOICE_DEFAULT <<< "$saved_values"
       return 0
     fi
@@ -594,11 +594,11 @@ voice_mode() {
   local mode="${1:-}" i failed=0
   local -a desired previous
   case "$mode" in
-    team)      desired=(0 0 0 0 0 0) ;;
-    team-dead) desired=(0 0 1 0 0 1) ;;
-    dead-all)  desired=(0 0 0 0 1 0) ;;
-    both-teams) desired=(0 1 1 0 0 0) ;;
-    all)       desired=(1 1 1 0 0 0) ;;
+    team)      desired=(0 0 0 0 0 0 1) ;;
+    team-dead) desired=(0 0 1 0 0 1 1) ;;
+    dead-all)  desired=(0 0 0 0 1 0 1) ;;
+    both-teams) desired=(0 1 1 0 0 1 1) ;;
+    all)       desired=(1 1 1 0 0 1 1) ;;
     default) ;;
     *) err 'Voice mode must be team, team-dead, dead-all, both-teams, all, or default.'; return 2 ;;
   esac
@@ -758,10 +758,10 @@ apply_mode_rules() {
   )
   if [[ "$mode" == comp_mr12 ]]; then
     commands+=(
-      'mp_maxrounds 24' 'mp_halftime 1'
+      'mp_maxrounds 24' 'mp_halftime 1' 'mp_halftime_pausetimer 0'
       'mp_overtime_enable 1' 'mp_overtime_maxrounds 6'
       'mp_overtime_startmoney 10000'
-      'mp_overtime_halftime_pausetimer 1'
+      'mp_overtime_halftime_pausetimer 0'
       'mp_match_can_clinch 1'
     )
   elif [[ "$mode" != wingman ]]; then
@@ -797,6 +797,8 @@ apply_mode_rules() {
   if [[ "$mode" == comp_mr12 ]]; then
     verify_convar mp_overtime_enable 1 || return 1
     verify_convar mp_overtime_maxrounds 6 || return 1
+    verify_convar mp_halftime_pausetimer 0 || return 1
+    verify_convar mp_overtime_halftime_pausetimer 0 || return 1
   fi
 }
 
