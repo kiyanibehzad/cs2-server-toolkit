@@ -8,7 +8,7 @@ SERVICE_NAME="${SERVICE_NAME:-cs2-ds}"
 CONF="$CS2_DIR/.update.env"
 # shellcheck disable=SC1090
 [[ -r "$CONF" ]] && . "$CONF"
-HOST="${HOST_IP:-127.0.0.1}"
+HOST="${RCON_HOST:-${HOST_IP:-127.0.0.1}}"
 PORT="${PORT:-27015}"
 PASS="${RCON_PASS:-}"
 report() { printf '%-19s %s\n' "$1" "$2"; }
@@ -60,7 +60,11 @@ if [[ -x "$STEAMCMD" ]]; then
     | tr -d '\r' | python3 "$CS2_DIR/cs2-buildid.py" 2>/dev/null)"
   report 'Public build' "${remote_build:-unknown}"
   if [[ "$local_build" =~ ^[0-9]+$ && "$remote_build" =~ ^[0-9]+$ ]]; then
-    [[ "$local_build" == "$remote_build" ]] && report Update current || report Update 'available or pending'
+    if [[ "$local_build" == "$remote_build" ]]; then
+      report Update current
+    else
+      report Update 'available or pending'
+    fi
   fi
 else
   report 'Public build' 'unavailable (SteamCMD missing)'

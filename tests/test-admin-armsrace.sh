@@ -27,6 +27,10 @@ cat > "$TEST_ROOT/bin/mcrcon" <<'EOF'
 #!/usr/bin/env bash
 cmd="${!#}"
 printf '%s\n' "$cmd" >> "$EVENTS"
+if [[ -f "$TEST_ROOT/fail_on" && "$cmd" == "$(cat "$TEST_ROOT/fail_on")" ]]; then
+  rm -f "$TEST_ROOT/fail_on"
+  exit 1
+fi
 case "$cmd" in
   status) printf 'SV:  [1: %s | server]\n' "$(cat "$MAP_STATE")" ;;
   host_map) printf 'host_map : %s\n' "$(cat "$MAP_STATE")" ;;
@@ -55,6 +59,7 @@ chmod +x "$TEST_ROOT/bin/"*
 
 export PATH="$TEST_ROOT/bin:$PATH" CS2_DIR="$TEST_ROOT/game" TEST_ROOT
 export EVENTS="$TEST_ROOT/events" MAP_STATE="$TEST_ROOT/map-state"
+export RCON_CLIENT="$TEST_ROOT/bin/mcrcon"
 
 run_case() {
   local name="$1" expected="$2"; shift 2
@@ -258,6 +263,7 @@ fi
 [[ "$(cat "$TEST_ROOT/bot_quota")" == 0 ]]
 echo 'PASS retakes_to_competitive'
 
+printf '""\n' > "$TEST_ROOT/mp_items_prohibited"
 "$REPO/scripts/cs2-admin.sh" weapons-set 'AWP, Negev, AWP' > "$TEST_ROOT/output" 2>&1
 [[ "$(cat "$TEST_ROOT/game/toolkit-config/blocked-weapons.txt")" == weapon_awp,weapon_negev ]]
 [[ "$(cat "$TEST_ROOT/mp_items_prohibited")" == '"9,28"' ]]
@@ -265,3 +271,13 @@ echo 'PASS retakes_to_competitive'
 [[ -z "$(cat "$TEST_ROOT/game/toolkit-config/blocked-weapons.txt")" ]]
 [[ "$(cat "$TEST_ROOT/mp_items_prohibited")" == '""' ]]
 echo 'PASS weapon_menu_persistence_and_clear'
+
+"$REPO/scripts/cs2-admin.sh" weapons-set awp > "$TEST_ROOT/output" 2>&1
+printf 'mp_items_prohibited "28"\n' > "$TEST_ROOT/fail_on"
+if "$REPO/scripts/cs2-admin.sh" weapons-set negev > "$TEST_ROOT/output" 2>&1; then
+  echo 'FAIL rejected weapon change was reported as successful'; exit 1
+fi
+[[ "$(cat "$TEST_ROOT/game/toolkit-config/blocked-weapons.txt")" == weapon_awp ]]
+[[ "$(cat "$TEST_ROOT/game/game/csgo/cfg/cs2_toolkit.cfg" | head -n 1)" == 'mp_items_prohibited "9"' ]]
+[[ "$(cat "$TEST_ROOT/mp_items_prohibited")" == '"9"' ]]
+echo 'PASS rejected_weapon_change_restores_saved_and_live'

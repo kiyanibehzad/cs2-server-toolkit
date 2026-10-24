@@ -44,17 +44,13 @@ players_empty() {
   [[ -r "$CS2_DIR/.update.env" ]] || return 2
   # shellcheck disable=SC1091
   . "$CS2_DIR/.update.env"
-  host="${HOST_IP:-127.0.0.1}"
+  host="${RCON_HOST:-${HOST_IP:-127.0.0.1}}"
   port="${PORT:-27015}"
   pass="${RCON_PASS:-}"
   [[ -n "$pass" ]] || return 2
-  if [[ -x "$CS2_DIR/cs2-rcon.py" ]]; then
-    output="$(RCON_PASS="$pass" "$CS2_DIR/cs2-rcon.py" -H "$host" -P "$port" status 2>/dev/null)" || return 2
-  else
-    command -v mcrcon >/dev/null || return 2
-    output="$(mcrcon -H "$host" -P "$port" -p "$pass" status 2>/dev/null)" || return 2
-  fi
-  humans="$(printf '%s\n' "$output" | awk -F'[, ]+' '/^players[[:space:]]*:/ {print $3; exit}')"
+  [[ -x "$CS2_DIR/cs2-rcon.py" ]] || return 2
+  output="$(RCON_PASS="$pass" "$CS2_DIR/cs2-rcon.py" -H "$host" -P "$port" status 2>/dev/null)" || return 2
+  humans="$(printf '%s\n' "$output" | sed -nE 's/^[[:space:]]*players[[:space:]]*:[[:space:]]*([0-9]+)[[:space:]]+humans,.*/\1/p' | head -n 1)"
   [[ "$humans" =~ ^[0-9]+$ ]] || return 2
   (( humans == 0 ))
 }

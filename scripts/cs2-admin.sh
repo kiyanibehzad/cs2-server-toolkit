@@ -13,12 +13,13 @@ CONF="$CS2_DIR/.update.env"
 # shellcheck disable=SC1090
 [[ -f "$CONF" ]] && . "$CONF"
 # Bump this for every user-visible toolkit change.
-TOOLKIT_VERSION="1.4.4"
+TOOLKIT_VERSION="1.5.0"
 
 # RCON / networking (fallbacks if not set in .update.env)
-RCON_HOST="${HOST_IP:-127.0.0.1}"
+RCON_HOST="${RCON_HOST:-${HOST_IP:-127.0.0.1}}"
 RCON_PORT="${PORT:-27015}"
 RCON_PASS="${RCON_PASS:-}"
+JOIN_HOST="${HOST_IP:-$RCON_HOST}"
 
 # Paths and service
 STEAMCMD="${STEAMCMD:-$CS2_HOME/steamcmd/steamcmd.sh}"
@@ -37,7 +38,7 @@ CFG_WEAPONS_NO_RIFLES="weapons_no_rifles.cfg"
 STATUS_URL_TPL="${STATUS_URL_TPL:-https://ismygameserver.online/valve/%s:%s}"
 
 compute_status_url() {
-  printf "$STATUS_URL_TPL" "$RCON_HOST" "$RCON_PORT"
+  printf "$STATUS_URL_TPL" "$JOIN_HOST" "$RCON_PORT"
 }
 
 # Banner cached fields (updated on each draw)
@@ -90,12 +91,8 @@ WORKSHOP_ACTIVE="$CS2_DIR/toolkit-config/workshop-active.txt"
 rcon() {
   local output result=0
   [[ -n "$RCON_PASS" ]] || { err "RCON password is missing"; return 1; }
-  if [[ -x "$RCON_CLIENT" ]]; then
-    output="$(RCON_PASS="$RCON_PASS" "$RCON_CLIENT" -H "$RCON_HOST" -P "$RCON_PORT" "$@")" || result=$?
-  else
-    require_cmd mcrcon || return 1
-    output="$(mcrcon -H "$RCON_HOST" -P "$RCON_PORT" -p "$RCON_PASS" "$@")" || result=$?
-  fi
+  [[ -x "$RCON_CLIENT" ]] || { err "RCON client is missing: $RCON_CLIENT"; return 1; }
+  output="$(RCON_PASS="$RCON_PASS" "$RCON_CLIENT" -H "$RCON_HOST" -P "$RCON_PORT" "$@")" || result=$?
   [[ -z "$output" ]] || printf '%s\n' "$output"
   if printf '%s\n' "$output" | grep -Eqi "Unknown (command|variable)|couldn't exec|failed to execute"; then
     return 1
@@ -163,6 +160,13 @@ ensure_user_systemd_env() {
 # ---------- CORE OPS ----------
 status()      { rcon status; }
 say()         { rcon "say $*"; }
+server_human_count() {
+  local output humans
+  output="$(rcon status)" || return 1
+  humans="$(printf '%s\n' "$output" | sed -nE 's/^[[:space:]]*players[[:space:]]*:[[:space:]]*([0-9]+)[[:space:]]+humans([,[:space:]]|$).*/\1/p' | head -n 1)"
+  [[ "$humans" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$humans"
+}
 add_bot()     { case "${1:-auto}" in ct) rcon "bot_add_ct";; t) rcon "bot_add_t";; *) rcon "bot_add";; esac; }
 remove_bots() { bot_set_count 0; }
 bot_quota()   { bot_set_count "$1"; }
@@ -353,7 +357,9 @@ show_os_maintenance() {
 # ---------- BANS ----------
 list_banned() { info "Listing banned users..."; rcon "listid"; }
 unban_select() {
-  local raw choice tmp; raw="$(list_banned || true)"; tmp="$(mktemp)"
+  local raw choice tmp remaining
+  raw="$(list_banned)" || return 1
+  tmp="$(mktemp)" || return 1
   echo "$raw" | grep -Eo '(7656119[0-9]{10}|STEAM_[0-5]:[01]:[0-9]+|\[U:[0-9]:[0-9]+\])' | sort -u > "$tmp"
   [[ ! -s "$tmp" ]] && { warn "No banned users found."; echo "$raw"; rm -f "$tmp"; return 1; }
   echo -e "${bold}${magenta}Banned users:${reset}"; nl -ba "$tmp"
@@ -362,7 +368,17 @@ unban_select() {
   [[ "$choice" =~ ^[0-9]+$ ]] || { err "Invalid selection."; rm -f "$tmp"; return 1; }
   local total; total="$(wc -l < "$tmp")"; (( choice>=1 && choice<=total )) || { err "Out of range."; rm -f "$tmp"; return 1; }
   local sid; sid="$(sed -n "${choice}p" "$tmp")"; rm -f "$tmp"
-  info "Unbanning: ${bold}$sid${reset}"; rcon "removeid $sid"; rcon "writeid" || true; ok "Done."
+  info "Unbanning: ${bold}$sid${reset}"
+  rcon "removeid $sid" || { err 'Could not remove the ban.'; return 1; }
+  rcon 'writeid' || { err 'Ban removed live, but could not save the ban list.'; return 1; }
+  remaining="$(rcon listid)" || { err 'Could not verify the updated ban list.'; return 1; }
+  if printf '%s\n' "$remaining" |
+       grep -Eo '(7656119[0-9]{10}|STEAM_[0-5]:[01]:[0-9]+|\[U:[0-9]:[0-9]+\])' |
+       grep -Fxq -- "$sid"; then
+    err 'The ban is still present in the server list.'
+    return 1
+  fi
+  ok 'Ban removed and saved.'
 }
 
 # ---------- MODES ----------
@@ -416,25 +432,58 @@ bot_count_for_control() {
   fi
 }
 
+restore_saved_bots() {
+  local saved="$1" count difficulty last
+  if [[ -n "$saved" ]]; then
+    read -r count difficulty last <<< "$saved"
+    "$CONFIG_TOOL" bots-set "$count" "$difficulty" "$last" >/dev/null
+  else
+    rm -f "$CS2_DIR/toolkit-config/bots.txt"
+    "$CONFIG_TOOL" sync >/dev/null
+  fi
+}
+
 bot_apply() {
   local count="$1" difficulty="$2" last="$3" maxplayers="${MAXPLAYERS:-32}" humans
+  local saved old_count old_mode old_difficulty old_auto old_join failed=0
   [[ "$count" =~ ^(0|[1-9]|[1-5][0-9]|6[0-4])$ ]] || { err 'Bot count must be 0-64.'; return 1; }
   [[ "$difficulty" =~ ^[0-3]$ ]] || { err 'Difficulty must be 0-3.'; return 1; }
   [[ "$maxplayers" =~ ^[0-9]+$ ]] || maxplayers=32
-  humans="$(rcon status 2>/dev/null | sed -nE 's/^[[:space:]]*players[[:space:]]*:[[:space:]]*([0-9]+) humans,.*/\1/p' | head -n 1)"
+  humans="$(server_human_count)" || return 1
   [[ "$humans" =~ ^[0-9]+$ ]] || { err 'Cannot verify free player slots.'; return 1; }
   (( count + humans <= maxplayers )) || { err "Only $((maxplayers - humans)) bot slots are available."; return 1; }
   [[ -x "$CONFIG_TOOL" ]] || { err 'Toolkit config helper is missing.'; return 1; }
-  "$CONFIG_TOOL" bots-set "$count" "$difficulty" "$last" || return 1
-  if [[ "$count" == 0 ]]; then
-    rcon 'bot_quota 0' >/dev/null || return 1
-    rcon 'bot_kick' >/dev/null || return 1
+  saved="$("$CONFIG_TOOL" bots-show)" || return 1
+  old_count="${BOT_LIVE_COUNT:-}"
+  old_mode="${BOT_LIVE_MODE:-}"
+  old_difficulty="${BOT_LIVE_DIFFICULTY:-}"
+  old_auto="$(convar_value sv_auto_adjust_bot_difficulty 2>/dev/null || true)"
+  old_join="$(convar_value bot_join_after_player 2>/dev/null || true)"
+  if ! "$CONFIG_TOOL" bots-set "$count" "$difficulty" "$last"; then
+    restore_saved_bots "$saved" || warn 'Could not restore saved bot settings.'
+    return 1
   fi
-  rcon 'exec cs2_toolkit.cfg' >/dev/null || return 1
-  verify_convar bot_quota_mode normal || return 1
-  verify_convar bot_quota "$count" || return 1
-  verify_convar sv_auto_adjust_bot_difficulty 0 || return 1
-  verify_convar bot_difficulty "$difficulty" || return 1
+  if [[ "$count" == 0 ]]; then
+    rcon 'bot_quota 0' >/dev/null || failed=1
+    (( failed )) || rcon 'bot_kick' >/dev/null || failed=1
+  fi
+  if (( ! failed )); then
+    rcon 'exec cs2_toolkit.cfg' >/dev/null &&
+      verify_convar bot_quota_mode normal &&
+      verify_convar bot_quota "$count" &&
+      verify_convar sv_auto_adjust_bot_difficulty 0 &&
+      verify_convar bot_difficulty "$difficulty" || failed=1
+  fi
+  if (( failed )); then
+    restore_saved_bots "$saved" || warn 'Could not restore saved bot settings.'
+    [[ -z "$old_mode" ]] || rcon "bot_quota_mode $old_mode" >/dev/null || true
+    [[ -z "$old_count" ]] || rcon "bot_quota $old_count" >/dev/null || true
+    [[ -z "$old_difficulty" ]] || rcon "bot_difficulty $old_difficulty" >/dev/null || true
+    [[ -z "$old_auto" ]] || rcon "sv_auto_adjust_bot_difficulty $old_auto" >/dev/null || true
+    [[ -z "$old_join" ]] || rcon "bot_join_after_player $old_join" >/dev/null || true
+    err 'Bot change failed; previous saved settings were restored.'
+    return 1
+  fi
 }
 
 bot_set_count() {
@@ -469,19 +518,37 @@ bot_enable() {
 }
 
 bot_difficulty_set() {
-  local difficulty="$1" count last
+  local difficulty="$1" count last saved old_auto old_difficulty
   [[ "$difficulty" =~ ^[0-3]$ ]] || { err 'Difficulty: 0 easy, 1 normal, 2 hard, 3 expert.'; return 1; }
   bot_saved_settings || return 1
   bot_live_settings || return 1
   count="${BOT_SAVED_COUNT:-$(bot_count_for_control)}"
   last="$BOT_SAVED_LAST"
   (( count > 0 )) && last="$count"
-  "$CONFIG_TOOL" bots-set "$count" "$difficulty" "$last" || return 1
-  rcon 'sv_auto_adjust_bot_difficulty 0' >/dev/null || return 1
-  rcon "bot_difficulty $difficulty" >/dev/null || return 1
-  verify_convar sv_auto_adjust_bot_difficulty 0 || return 1
-  verify_convar bot_difficulty "$difficulty" || return 1
-  ok "Bot difficulty: $difficulty. Newly added bots and future maps use this level."
+  saved="$("$CONFIG_TOOL" bots-show)" || return 1
+  old_auto="$(convar_value sv_auto_adjust_bot_difficulty 2>/dev/null || true)"
+  old_difficulty="$BOT_LIVE_DIFFICULTY"
+  if [[ -n "$saved" ]]; then
+    if ! "$CONFIG_TOOL" bots-set "$count" "$difficulty" "$last"; then
+      restore_saved_bots "$saved" || warn 'Could not restore saved bot settings.'
+      return 1
+    fi
+  fi
+  if ! rcon 'sv_auto_adjust_bot_difficulty 0' >/dev/null ||
+     ! rcon "bot_difficulty $difficulty" >/dev/null ||
+     ! verify_convar sv_auto_adjust_bot_difficulty 0 ||
+     ! verify_convar bot_difficulty "$difficulty"; then
+    [[ -z "$saved" ]] || restore_saved_bots "$saved" || warn 'Could not restore saved bot settings.'
+    [[ -z "$old_auto" ]] || rcon "sv_auto_adjust_bot_difficulty $old_auto" >/dev/null || true
+    rcon "bot_difficulty $old_difficulty" >/dev/null || true
+    err 'Bot difficulty change failed; previous saved settings were restored.'
+    return 1
+  fi
+  if [[ -n "$saved" ]]; then
+    ok "Bot difficulty: $difficulty. Newly added bots and future maps use this level."
+  else
+    ok "Bot difficulty: $difficulty for this map. Set a bot target to save it for future maps."
+  fi
 }
 
 bot_menu() {
@@ -1164,13 +1231,18 @@ sanitize_slug() {
   echo "$s" | tr 'A-Z' 'a-z'          # lowercase
 }
 
-# Ask for integer with default
+# Ask for a bounded integer; invalid input must not silently become a default.
 ask_int_default() {
-  local prompt="$1" def="$2" ans
-  read -rp "$prompt [$def]: " ans
-  [[ -z "$ans" ]] && { echo "$def"; return; }
-  [[ "$ans" =~ ^-?[0-9]+$ ]] && { echo "$ans"; return; }
-  echo "$def"
+  local prompt="$1" def="$2" minimum="$3" maximum="$4" ans
+  while read -rp "$prompt [$def, $minimum-$maximum]: " ans; do
+    [[ -z "$ans" ]] && { printf '%s\n' "$def"; return 0; }
+    if [[ "$ans" =~ ^[0-9]{1,5}$ ]] && (( 10#$ans >= minimum && 10#$ans <= maximum )); then
+      printf '%s\n' "$((10#$ans))"
+      return 0
+    fi
+    printf 'Enter a number from %s to %s, or press Enter for %s.\n' "$minimum" "$maximum" "$def" >&2
+  done
+  return 1
 }
 
 # ----------------------------------------------------------------------
@@ -1225,20 +1297,20 @@ create_custom_mode() {
     *) gt=0; gm=0 ;;
   esac
 
-  gt="$(ask_int_default "game_type" "$gt")"
-  gm="$(ask_int_default "game_mode" "$gm")"
+  gt="$(ask_int_default "game_type" "$gt" 0 20)" || return 1
+  gm="$(ask_int_default "game_mode" "$gm" 0 20)" || return 1
 
-  maxrounds="$(ask_int_default "mp_maxrounds" "24")"
-  halftime="$(ask_int_default "mp_halftime (0/1)" "1")"
-  overtime_enable="$(ask_int_default "mp_overtime_enable (0/1)" "1")"
-  overtime_max="$(ask_int_default "mp_overtime_maxrounds" "6")"
-  buytime="$(ask_int_default "mp_buytime" "20")"
-  freezetime="$(ask_int_default "mp_freezetime" "15")"
-  rrdelay="$(ask_int_default "mp_round_restart_delay" "7")"
-  autokick="$(ask_int_default "mp_autokick (0/1)" "0")"
-  ff="$(ask_int_default "mp_friendlyfire (0/1)" "0")"
-  startmoney="$(ask_int_default "mp_startmoney" "800")"
-  warmup_time="$(ask_int_default "mp_warmuptime" "20")"
+  maxrounds="$(ask_int_default "mp_maxrounds" "24" 1 128)" || return 1
+  halftime="$(ask_int_default "mp_halftime" "1" 0 1)" || return 1
+  overtime_enable="$(ask_int_default "mp_overtime_enable" "1" 0 1)" || return 1
+  overtime_max="$(ask_int_default "mp_overtime_maxrounds" "6" 2 60)" || return 1
+  buytime="$(ask_int_default "mp_buytime" "20" 0 600)" || return 1
+  freezetime="$(ask_int_default "mp_freezetime" "15" 0 120)" || return 1
+  rrdelay="$(ask_int_default "mp_round_restart_delay" "7" 0 60)" || return 1
+  autokick="$(ask_int_default "mp_autokick" "0" 0 1)" || return 1
+  ff="$(ask_int_default "mp_friendlyfire" "0" 0 1)" || return 1
+  startmoney="$(ask_int_default "mp_startmoney" "800" 0 65535)" || return 1
+  warmup_time="$(ask_int_default "mp_warmuptime" "20" 0 3600)" || return 1
 
   {
     echo "// Custom mode: $slug"
@@ -1282,7 +1354,7 @@ _ensure_file() { local f="$1"; [[ -f "$f" ]] || { mkdir -p "$(dirname "$f")"; : 
 
 edit_mode_server_cfg_menu() {
   local cfgdir; cfgdir="$(cfg_path_guess)"
-  local target base sel
+  local target base sel humans
 
   while true; do
     echo
@@ -1318,9 +1390,23 @@ edit_mode_server_cfg_menu() {
 
     _ensure_file "$target"
     info "Opening: $target"
-    _edit_file_with_vi "$target"
+    if ! _edit_file_with_vi "$target"; then
+      err 'Editor failed; restart skipped.'
+      continue
+    fi
     ok "Saved."
-
+    if ! user_unit_is_active "$SERVICE_NAME"; then
+      info 'Service is stopped; the file will apply on its next start.'
+      continue
+    fi
+    humans="$(server_human_count)" || {
+      warn 'Player count unavailable; restart skipped. The file is saved.'
+      continue
+    }
+    if (( humans > 0 )); then
+      warn "$humans player(s) online; restart skipped. The file is saved."
+      continue
+    fi
     restart_service || warn "Restart failed; check logs."
   done
 }
@@ -1333,19 +1419,44 @@ weapons_block_show() {
   rcon "mp_items_prohibited"
 }
 weapons_block_set() {
-  local list ids live
+  local list ids live previous_saved previous_live
   [[ -x "$CONFIG_TOOL" ]] || { err "Toolkit config helper is missing."; return 1; }
-  list="$("$CONFIG_TOOL" set "$1")" || return 1
-  ids="$("$CONFIG_TOOL" ids)" || return 1
-  if ! rcon "mp_items_prohibited \"$ids\""; then
-    err "Saved the list, but the live server rejected it. Check RCON."
+  previous_saved="$("$CONFIG_TOOL" show)" || return 1
+  previous_live="$(convar_value mp_items_prohibited)" || return 1
+  [[ -n "$previous_live" ]] || { err 'Could not read the current weapon restriction.'; return 1; }
+  previous_live="${previous_live//\"/}"
+  previous_live="${previous_live// /}"
+  if ! list="$("$CONFIG_TOOL" set "$1")"; then
+    "$CONFIG_TOOL" set "$previous_saved" >/dev/null || warn 'Could not restore saved restrictions.'
     return 1
   fi
-  live="$(convar_value mp_items_prohibited)" || return 1
+  ids="$("$CONFIG_TOOL" ids)" || {
+    "$CONFIG_TOOL" set "$previous_saved" >/dev/null || warn 'Could not restore saved restrictions.'
+    return 1
+  }
+  if ! rcon "mp_items_prohibited \"$ids\""; then
+    "$CONFIG_TOOL" set "$previous_saved" >/dev/null || warn 'Could not restore saved restrictions.'
+    rcon "mp_items_prohibited \"$previous_live\"" >/dev/null || true
+    err 'The live server rejected the restriction; previous saved settings were restored.'
+    return 1
+  fi
+  live="$(convar_value mp_items_prohibited)" || {
+    "$CONFIG_TOOL" set "$previous_saved" >/dev/null || warn 'Could not restore saved restrictions.'
+    rcon "mp_items_prohibited \"$previous_live\"" >/dev/null || true
+    return 1
+  }
+  [[ -n "$live" ]] || {
+    "$CONFIG_TOOL" set "$previous_saved" >/dev/null || warn 'Could not restore saved restrictions.'
+    rcon "mp_items_prohibited \"$previous_live\"" >/dev/null || true
+    err 'Could not verify the live weapon restriction; previous settings were restored.'
+    return 1
+  }
   live="${live//\"/}"
   live="${live// /}"
   [[ "$live" == "$ids" ]] || {
-    err "Saved restriction, but live value differs (expected ${ids:-empty}, got ${live:-empty})."
+    "$CONFIG_TOOL" set "$previous_saved" >/dev/null || warn 'Could not restore saved restrictions.'
+    rcon "mp_items_prohibited \"$previous_live\"" >/dev/null || true
+    err "Restriction was rejected (expected ${ids:-empty}, got ${live:-empty}); previous settings were restored."
     return 1
   }
   ok "Saved and applied: ${list:-none} (indices: ${ids:-none})"
@@ -1676,28 +1787,136 @@ fetch_banner_stats() {
 }
 
 # ---------- TOOLKIT SELF-UPDATE ----------
+# Stage every installed file beside its destination for atomic replacement.
+# The game updater, daily Home job, and OS maintenance share this lock.
+deploy_toolkit_files() (
+  set -euo pipefail
+  local repo="$1" admin_source="$2" file index last=-1 result rollback_result=0
+  local user_units="$CS2_HOME/.config/systemd/user"
+  local root_scripts="${TOOLKIT_ROOT_SCRIPT_DIR:-/usr/local/sbin}"
+  local root_units="${TOOLKIT_ROOT_UNIT_DIR:-/etc/systemd/system}"
+  local suffix
+  suffix=".toolkit-update-$(date +%s)-$$-$RANDOM"
+  local -a sources=() targets=() modes=() roots=() backups=() staged=() existed=()
+
+  add_file() {
+    sources+=("$1")
+    targets+=("$2")
+    modes+=("$3")
+    roots+=("$4")
+    backups+=("$2$suffix.bak")
+    staged+=("$2$suffix.new")
+  }
+  run_as_owner() {
+    local as_root="$1"
+    shift
+    if [[ "$as_root" == 1 ]]; then sudo "$@"; else "$@"; fi
+  }
+  rollback_files() {
+    local i failed=0
+    for ((i=last; i>=0; i--)); do
+      if [[ "${existed[i]}" == 1 ]]; then
+        if run_as_owner "${roots[i]}" test -e "${backups[i]}"; then
+          run_as_owner "${roots[i]}" mv -f "${backups[i]}" "${targets[i]}" || failed=1
+        fi
+      else
+        run_as_owner "${roots[i]}" rm -f "${targets[i]}" || failed=1
+      fi
+    done
+    systemctl --user daemon-reload || failed=1
+    sudo systemctl daemon-reload || failed=1
+    return "$failed"
+  }
+  finish_deploy() {
+    result=$?
+    local i
+    trap - EXIT INT TERM
+    set +e
+    if (( result )); then
+      err 'Toolkit deployment failed; restoring the previous files.'
+      rollback_files
+      rollback_result=$?
+    fi
+    for ((i=0; i<${#targets[@]}; i++)); do
+      run_as_owner "${roots[i]}" rm -f "${staged[i]}"
+      if (( result == 0 || rollback_result == 0 )); then
+        run_as_owner "${roots[i]}" rm -f "${backups[i]}"
+      fi
+    done
+    if (( rollback_result )); then
+      err 'Rollback was incomplete; .toolkit-update backup files were retained.'
+      result=1
+    fi
+    exit "$result"
+  }
+
+  for file in cs2-workshop.py cs2-config.sh cs2-rcon.py cs2-buildid.py \
+    cs2-health.sh cs2-safe-update.sh cs2-daily-home.sh update-cs2.sh start.sh; do
+    add_file "$repo/scripts/$file" "$CS2_DIR/$file" 0755 0
+  done
+  add_file "$admin_source" "$CS2_DIR/cs2-admin.sh" 0755 0
+  for file in cs2-ds.service cs2-update.service cs2-update.timer \
+    cs2-checkupdate.service cs2-checkupdate.timer \
+    cs2-daily-home.service cs2-daily-home.timer; do
+    add_file "$repo/systemd/$file" "$user_units/$file" 0644 0
+  done
+  add_file "$repo/scripts/cs2-os-maintenance.sh" "$root_scripts/cs2-os-maintenance.sh" 0755 1
+  for file in cs2-os-maintenance@.service cs2-os-maintenance@.timer; do
+    add_file "$repo/systemd/$file" "$root_units/$file" 0644 1
+  done
+
+  [[ -d "$CS2_DIR" && -d "$user_units" ]] || { err 'Installed toolkit directories are missing.'; exit 1; }
+  for ((index=0; index<${#targets[@]}; index++)); do
+    [[ -f "${sources[index]}" ]] || { err "Toolkit source is missing: ${sources[index]}"; exit 1; }
+    run_as_owner "${roots[index]}" test -d "$(dirname "${targets[index]}")" || {
+      err "Toolkit destination directory is missing: $(dirname "${targets[index]}")"
+      exit 1
+    }
+  done
+
+  exec 8>"$CS2_DIR/.update.lock"
+  flock -n 8 || { warn 'Game or OS maintenance is running; retry the toolkit update later.'; exit 1; }
+  trap finish_deploy EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  for ((index=0; index<${#targets[@]}; index++)); do
+    if run_as_owner "${roots[index]}" test -e "${targets[index]}"; then
+      existed[index]=1
+      run_as_owner "${roots[index]}" cp -p "${targets[index]}" "${backups[index]}" || exit 1
+    else
+      existed[index]=0
+    fi
+    last=$index
+    run_as_owner "${roots[index]}" install -m "${modes[index]}" "${sources[index]}" "${staged[index]}" || exit 1
+    run_as_owner "${roots[index]}" mv -f "${staged[index]}" "${targets[index]}" || exit 1
+  done
+  systemctl --user daemon-reload || exit 1
+  sudo systemctl daemon-reload || exit 1
+)
+
 update_toolkit_git() {
   require_cmd git || return 1
+  require_cmd sudo || return 1
+  require_cmd flock || return 1
   local repo="${TOOLKIT_REPO:-$HOME/cs2-server-toolkit}"
-  local src="${TOOLKIT_SCRIPT:-$repo/scripts/cs2-admin.sh}"
-  local self
-  self="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
-  if [[ ! -d "$repo/.git" ]]; then
-    err "Toolkit repo not found at $repo"
+  local source="${TOOLKIT_SCRIPT:-$repo/scripts/cs2-admin.sh}" dirty
+  [[ -d "$repo/.git" ]] || { err "Toolkit repo not found at $repo"; return 1; }
+  dirty="$(cd "$repo" && git status --porcelain --untracked-files=normal)" || {
+    err 'Could not inspect the toolkit checkout.'
     return 1
-  fi
-  info "Pulling latest toolkit from Git..."
-  (cd "$repo" && git pull --rebase) || { err "git pull failed"; return 1; }
-  if [[ ! -f "$src" || ! -f "$repo/scripts/cs2-config.sh" || ! -f "$repo/scripts/cs2-workshop.py" ]]; then
-    err 'Admin or config helper is missing from the toolkit repo.'
-    return 1
-  fi
-  install -m 0755 "$repo/scripts/cs2-config.sh" "$CONFIG_TOOL" || { err "Config helper install failed"; return 1; }
-  install -m 0755 "$repo/scripts/cs2-workshop.py" "$WORKSHOP_TOOL" || { err "Workshop helper install failed"; return 1; }
-  install -m 0755 "$src" "$self" || { err "Install failed"; return 1; }
-  ok "Admin script updated from Git."
-  echo "Reloading menu..."
-  exec "$self"
+  }
+  [[ -z "$dirty" ]] || { err 'Toolkit checkout has local changes; resolve them before updating.'; return 1; }
+  # All-or-nothing deployment needs root access for the OS maintenance unit.
+  sudo -v || { err 'Sudo access is required to update all toolkit components.'; return 1; }
+  info 'Pulling latest toolkit from Git...'
+  (cd "$repo" && git pull --ff-only) || { err 'git pull failed or needs a fast-forward; local changes were left untouched.'; return 1; }
+  ensure_user_systemd_env
+  sudo -v || { err 'Sudo access expired before deployment.'; return 1; }
+  deploy_toolkit_files "$repo" "$source" || return 1
+  ok 'All toolkit scripts and systemd units were updated from Git.'
+  info 'The running game service was not restarted.'
+  echo 'Reloading menu...'
+  exec "$CS2_DIR/cs2-admin.sh"
 }
 
 # ---------- UI ----------
@@ -1711,9 +1930,9 @@ banner() {
   echo -e "${bold}${CLR_TITLE}=== CS2 Quick Admin v${TOOLKIT_VERSION} ===${reset}"
   echo
   if [[ -n "$jp" ]]; then
-    echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT}; password ******** (hidden)"
+    echo -e "${bold}${cyan}Connect:${reset} connect ${JOIN_HOST}:${RCON_PORT}; password ******** (hidden)"
   else
-    echo -e "${bold}${cyan}Connect:${reset} connect ${RCON_HOST}:${RCON_PORT}"
+    echo -e "${bold}${cyan}Connect:${reset} connect ${JOIN_HOST}:${RCON_PORT}"
   fi
   echo -e "${bold}${cyan}Hostname:${reset} ${BANNER_HOSTNAME}"
   echo -e "${bold}${cyan}CS2 version:${reset} ${BANNER_VERSION}"
@@ -1783,7 +2002,7 @@ tools_menu() {
     echo '  5) Custom RCON command'
     echo '  6) Safe game update check'
     echo '  7) Game timers and update logs'
-    echo '  8) Update toolkit menu from Git'
+    echo '  8) Update toolkit from Git'
     echo '  9) Server health check'
     echo '  10) OS update and reboot status'
     echo '  11) Set or replace game login token (GSLT)'

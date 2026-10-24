@@ -32,9 +32,13 @@ case " $* " in
   *) exit 2 ;;
 esac
 EOF
-cat > "$TEST_ROOT/bin/mcrcon" <<'EOF'
+cat > "$TEST_ROOT/game/cs2-rcon.py" <<'EOF'
 #!/usr/bin/env bash
 [[ "${RCON_FAIL:-0}" == 0 ]] || exit 1
+while (($#)); do
+  if [[ "$1" == -H ]]; then printf '%s\n' "$2" >> "$RCON_HOST_LOG"; break; fi
+  shift
+done
 printf 'players : %s humans, 0 bots\n' "${HUMANS:-0}"
 EOF
 cat > "$TEST_ROOT/bin/flock" <<'EOF'
@@ -46,15 +50,17 @@ cat > "$TEST_ROOT/bin/sleep" <<'EOF'
 exit 0
 EOF
 chmod +x "$TEST_ROOT/bin/"*
+chmod +x "$TEST_ROOT/game/cs2-rcon.py"
 
 export PATH="$TEST_ROOT/bin:$PATH" STEAMCMD="$TEST_ROOT/bin/steamcmd"
-export CS2_DIR="$TEST_ROOT/game" EVENTS="$TEST_ROOT/events" STATE_FILE="$TEST_ROOT/state"
+export CS2_DIR="$TEST_ROOT/game" EVENTS="$TEST_ROOT/events" STATE_FILE="$TEST_ROOT/state" RCON_HOST_LOG="$TEST_ROOT/rcon-hosts"
 
 run_case() {
   local name="$1" expected_exit="$2" expected_events="$3" mode="$4"; shift 4
   printf 'active\n' > "$STATE_FILE"
   printf '"buildid" "100"\n' > "$CS2_DIR/steamapps/appmanifest_730.acf"
   : > "$EVENTS"
+  : > "$RCON_HOST_LOG"
   local actual=0
   env "$@" "$REPO/scripts/cs2-safe-update.sh" "$mode" > "$TEST_ROOT/output" 2>&1 || actual=$?
   [[ "$actual" == "$expected_exit" ]] || { echo "FAIL $name: exit $actual"; cat "$TEST_ROOT/output"; exit 1; }
@@ -70,11 +76,16 @@ run_case force_occupied 0 '' --force HUMANS=2
 run_case rcon_unavailable 1 '' --check RCON_FAIL=1
 run_case update_success 0 'stop,update,start' --check
 grep -Fq "+force_install_dir $CS2_DIR" "$EVENTS"
+run_case local_rcon_host 0 'stop,update,start' --check RCON_HOST=127.0.0.2
+[[ "$(cat "$RCON_HOST_LOG")" == '127.0.0.2' ]] || { echo 'FAIL local_rcon_host'; exit 1; }
 run_case multi_release_gap 0 'stop,update,start' --check REMOTE_BUILD=999
 run_case unchanged_build 1 'stop,update,start' --check UNCHANGED_BUILD=1
 run_case update_failure 1 'stop,update,update,update,start' --check UPDATE_FAIL=1
 run_case stop_failure 1 'stop,start' --check STOP_FAIL=1
 run_case locked 0 '' --check LOCK_BUSY=1
+mv "$CS2_DIR/cs2-rcon.py" "$CS2_DIR/cs2-rcon.py.disabled"
+run_case missing_rcon_client 1 '' --check
+mv "$CS2_DIR/cs2-rcon.py.disabled" "$CS2_DIR/cs2-rcon.py"
 
 printf 'inactive\n' > "$STATE_FILE"
 : > "$EVENTS"

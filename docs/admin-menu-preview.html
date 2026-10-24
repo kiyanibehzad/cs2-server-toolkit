@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CS2 Server Toolkit admin menu v1.5.0</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body { background: radial-gradient(circle at 50% 0%, #19243d, #0c1424 48%, #080d18); color: #e9ebf4; font: 16px/1.44 Menlo, Monaco, Consolas, monospace; }
+    main { width: 900px; margin: 0 auto; padding: 22px 24px 28px; }
+    h1 { margin: 0 8px 0; font-size: 22px; font-weight: 500; letter-spacing: .01em; }
+    .sub { margin: 2px 8px 18px; color: #9da9bd; font-size: 14px; }
+    .panel { padding: 20px 24px; border: 1px solid #364969; border-radius: 11px; background: rgba(2, 7, 18, .73); box-shadow: 0 0 0 2px #111b2c, 0 16px 36px #03081370; }
+    .panel + .panel { margin-top: 28px; }
+    pre { margin: 0; font: inherit; white-space: pre; }
+    .cyan { color: #18dce9; } .blue { color: #58b5ff; } .magenta { color: #e769ed; }
+    .yellow { color: #ffd724; } .green { color: #3ce679; } .red { color: #ff5c67; }
+    .white { color: #e9ebf4; } .dim { color: #a9b3c7; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>CS2 Server Toolkit · Admin menu v1.5.0</h1>
+  <div class="sub">Example only · 203.0.113.10 is a documentation address</div>
+  <div class="panel"><pre><span class="magenta">=== CS2 Quick Admin v1.5.0 ===</span>
+
+<span class="cyan">Connect:</span> connect 203.0.113.10:27015; password ******** (hidden)
+<span class="cyan">Hostname:</span> n/a
+<span class="cyan">CS2 version:</span> n/a
+<span class="cyan">Players:</span> n/a
+<span class="cyan">Status URL:</span> https://ismygameserver.online/valve/203.0.113.10:27015
+
+<span class="cyan">[Map Hotkeys]</span>
+  <span class="cyan">1)</span> de_dust2     <span class="cyan">2)</span> de_mirage    <span class="cyan">3)</span> de_inferno  <span class="cyan">4)</span> de_nuke
+  <span class="cyan">5)</span> de_overpass  <span class="cyan">6)</span> de_vertigo   <span class="cyan">7)</span> de_ancient  <span class="cyan">8)</span> de_anubis
+  <span class="cyan">9)</span> de_cache     <span class="cyan">0)</span> de_train
+  <span class="cyan">p)</span> List installed maps
+  <span class="cyan">A)</span> Arms Race maps (Pool / Shoots / Baggage / Shoots Night + preset)
+  <span class="cyan">R)</span> Rush map (rush_001 + preset)
+  <span class="cyan">K)</span> Workshop maps + saved presets
+  <span class="cyan">H)</span> Home: Competitive MR12 + de_dust2
+  <span class="cyan">Note:</span> Map keys follow the active preset; P1..P7 shows its available maps.
+
+<span class="yellow">[Bots: type code + Enter]</span>
+  <span class="yellow">b1)</span> On  <span class="yellow">b2)</span> Off + kick  <span class="yellow">b3)</span> Add many  <span class="yellow">b4)</span> Exact count  <span class="yellow">b5)</span> Difficulty  <span class="yellow">b0)</span> Menu
+
+<span class="green">[Voice: type code + Enter]</span>
+  <span class="green">v1)</span> Team + warmup  <span class="green">v2)</span> Dead both teams  <span class="green">v3)</span> Everyone  <span class="green">v4)</span> Mode default
+  <span class="green">v5)</span> Strict team  <span class="green">v6)</span> + Spectators  <span class="green">v0)</span> Menu
+
+<span class="yellow">[Warmup]</span>
+  <span class="yellow">W)</span> On / off / duration (default 30s)
+
+<span class="magenta">[Actions]</span>
+  <span class="magenta">s)</span> Status       <span class="magenta">y)</span> Say message
+
+<span class="blue">[Tools]</span>
+  <span class="blue">m)</span> Updates / restart / logs / health / token / password
+
+<span class="magenta">[Bans]</span>
+  <span class="magenta">B)</span> List banned  <span class="magenta">U)</span> Unban (select from list)
+
+<span class="red">[Modes]</span>
+  <span class="red">P1)</span> Competitive MR12  <span class="red">P2)</span> Casual
+  <span class="red">P3)</span> Wingman 2v2       <span class="red">P4)</span> Deathmatch
+  <span class="red">P5)</span> Retakes           <span class="red">P6)</span> Arms Race
+  <span class="red">P7)</span> Rush (rush_001)   <span class="red">P0)</span> Preset menu
+  <span class="red">Note:</span> P1..P6 ask for map keys, or use P1 1 / P1+1; P7 loads Rush.
+  <span class="red">C)</span> Create custom mode (.cfg)
+  <span class="red">S)</span> Edit *_server.cfg per mode (Edit+restart)
+
+<span class="white">[Weapons]</span>
+  <span class="white">w)</span> Weapons block menu
+
+<span class="cyan">[Fun]</span>
+  <span class="cyan">f)</span> Fun menu (chickens / gravity / speed)
+
+<span class="red">[EXIT]</span>
+  <span class="red">e)</span> Exit
+
+<span class="blue">Choose (Enter to apply):</span></pre></div>
+  <div class="panel"><pre><span class="blue">=== Maintenance and Server Tools ===</span>
+  1) Force game update (only when empty)
+  2) Restart game service
+  3) Live game logs
+  4) Back up game cfg
+  5) Custom RCON command
+  6) Safe game update check
+  7) Game timers and update logs
+  8) Update toolkit from Git
+  9) Server health check
+  10) OS update and reboot status
+  11) Set or replace game login token (GSLT)
+  12) Join password menu
+  0) Back</pre></div>
+</main>
+</body>
+</html>

@@ -44,6 +44,7 @@ exit 0
 EOF
 chmod +x "$TEST_ROOT/bin/"*
 export PATH="$TEST_ROOT/bin:$PATH" CS2_DIR="$TEST_ROOT/game" TEST_ROOT EVENTS="$TEST_ROOT/events"
+export RCON_CLIENT="$TEST_ROOT/bin/mcrcon"
 : > "$EVENTS"
 
 if "$REPO/scripts/cs2-admin.sh" workshop-play '111;quit' > "$TEST_ROOT/output" 2>&1; then

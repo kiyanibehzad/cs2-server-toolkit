@@ -26,6 +26,7 @@ exit 0
 EOF
 chmod +x "$TEST_ROOT/bin/"*
 export TEST_ROOT EVENTS="$TEST_ROOT/events" CS2_DIR="$TEST_ROOT/game" PATH="$TEST_ROOT/bin:$PATH"
+export RCON_CLIENT="$TEST_ROOT/bin/mcrcon"
 ADMIN="$REPO/scripts/cs2-admin.sh"
 
 "$ADMIN" warmup-set 45 > "$TEST_ROOT/output"

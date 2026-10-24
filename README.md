@@ -14,8 +14,8 @@ The installer downloads CS2 through SteamCMD, creates a user-level `systemd` ser
 
 ## Requirements
 
-- Ubuntu 24.04 on a VPS or dedicated server
-- At least 4 GB RAM (8 GB or more recommended) and about 60 GB free disk space
+- Ubuntu 22.04, 24.04, or 26.04 LTS on an x86_64 VPS or dedicated server; 24.04 remains the tested production baseline
+- At least 4 GB RAM (8 GB or more recommended) and 60 GiB free disk space before installation; 85 GiB or more leaves room for updates
 - A non-root Linux account with `sudo` access for installation
 - A [Steam Game Server Login Token](https://steamcommunity.com/dev/managegameservers) for a public server
 
@@ -37,7 +37,15 @@ cd cs2-server-toolkit
 ./install.sh
 ```
 
-The installer asks for the public server IP, RCON password, server name, and optional join password and GSLT. Run it as the game account, not root. The first installation downloads CS2 and may take time depending on your connection.
+The installer asks for the public server IP, RCON password, server name, and optional join password and GSLT. Run it as the game account, not root. The first installation downloads CS2 and may take time depending on your connection. SteamCMD and the initial game download are retried and checked before the service is created.
+
+If the public IP is not assigned to a local interface (common behind NAT), the installer binds the game to all local IPv4 interfaces and connects to RCON through `127.0.0.1`. Forward the chosen UDP game port through your provider or router. To select a specific local interface on a fresh installation, set `BIND_IP` before running the installer:
+
+```bash
+BIND_IP=10.0.0.5 ./install.sh
+```
+
+`HOST_IP` remains the public address shown to players. `RCON_HOST` can be set separately when the local management address needs to differ from the bind address. The installer checks that an explicit `BIND_IP` belongs to the server, or is `0.0.0.0`. On reinstall it keeps the existing `.update.env` unchanged, including older configurations without these optional fields; those retain their previous binding and RCON behavior.
 
 Open the admin console after installation:
 
@@ -47,7 +55,7 @@ Open the admin console after installation:
 
 ## Admin console
 
-![CS2 admin console using a sample, non-routable IP address](docs/images/admin-menu-v1.4.4.png)
+![CS2 admin console v1.5.0 using a sample, non-routable IP address](docs/images/admin-menu-v1.5.0.png)
 
 Type a choice and press Enter to apply it. The menu groups everyday controls on the main screen and puts maintenance and credentials under **Tools** (`m`).
 
@@ -78,7 +86,12 @@ Bot count and difficulty settings persist across map changes and restarts. The v
 
 ### Maintenance and access
 
-The **Tools** menu (`m`) contains game updates, service restart, logs, config backup, RCON, timer status, and health checks. Use `m` → `11` to replace the GSLT and `m` → `12` to set or clear the join password. The token is entered without echoing it, saved privately, and used at the next game start; when the service is running, the menu offers a restart to apply it immediately.
+The **Tools** menu (`m`) contains game updates, a full toolkit update from Git
+(scripts and service units), service restart, logs, config backup, RCON, timer
+status, and health checks. Use `m` → `11` to replace the GSLT and `m` → `12` to
+set or clear the join password. The token is entered without echoing it, saved
+privately, and used at the next game start; when the service is running, the
+menu offers a restart to apply it immediately.
 
 Start or stop the game service directly when needed:
 
@@ -91,7 +104,9 @@ journalctl --user -u cs2-ds -f
 ## Configuration and game modes
 
 `.update.env` holds the toolkit's private launch settings, including GSLT,
-network settings and RCON credentials. `start.sh` reads it on every start.
+network settings and RCON credentials. `HOST_IP` is the public connect address,
+`BIND_IP` is the local IPv4 listener, and `RCON_HOST` is the address the toolkit
+uses for local RCON checks. `start.sh` reads the file on every start.
 GSLT is passed to the game at launch; `cs2server.cfg` is no longer a second
 toolkit source for it. Existing duplicate GSLT lines are removed during
 reinstallation after a restricted backup is made.
@@ -230,13 +245,22 @@ Game updates and morning maintenance use separate timers with a shared lock:
   minutes; update Ubuntu packages and reboot only if required and no real
   players are online
 
-The schedule uses the server's local time. If RCON cannot confirm the number
-of real players, maintenance waits. A daily Home restart is skipped if the
+The schedule uses the server's local time. Game updates and the daily Home
+restart wait when RCON cannot confirm the number of real players. OS
+maintenance may refresh package indexes while players are online because that
+does not install packages or reboot. It upgrades packages or reboots only when
+RCON confirms no real players, or when RCON is unavailable but the game service
+is idle and no CS2 process exists. A daily Home restart is skipped if the
 server stays occupied through the morning. The installer replaces Ubuntu's
 floating `apt-daily.timer` and `apt-daily-upgrade.timer` with the root-owned,
 player-safe OS timer. It preserves package configuration and does not remove
 packages during upgrades. OS update and reboot logs are in
 `journalctl -u cs2-os-maintenance@<game-user>.service`.
+
+The installer and morning maintenance update packages within the current
+Ubuntu release; neither upgrades the server to another Ubuntu release.
+For a release upgrade, follow the [Ubuntu Server upgrade guide](https://documentation.ubuntu.com/server/how-to/software/upgrade-your-release/index.html)
+after taking a recoverable snapshot and testing the toolkit and CS2 on a clone.
 
 When a new build is available, the updater checks the player count through
 RCON. If players are present or RCON cannot be trusted, it defers the update.

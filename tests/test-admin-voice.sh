@@ -22,6 +22,7 @@ esac
 EOF
 chmod +x "$TEST_ROOT/bin/mcrcon"
 export TEST_ROOT EVENTS="$TEST_ROOT/events" CS2_DIR="$TEST_ROOT/game" PATH="$TEST_ROOT/bin:$PATH"
+export RCON_CLIENT="$TEST_ROOT/bin/mcrcon"
 ADMIN="$REPO/scripts/cs2-admin.sh"
 
 names=(sv_full_alltalk sv_alltalk sv_deadtalk sv_talk_enemy_living sv_talk_enemy_dead sv_auto_full_alltalk_during_warmup_half_end sv_voiceenable)

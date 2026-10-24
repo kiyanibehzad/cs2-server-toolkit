@@ -25,6 +25,10 @@ EOF
 cat > "$TEST_ROOT/game/cs2-rcon.py" <<'EOF'
 #!/usr/bin/env bash
 [[ -f "$TEST_ROOT/status-fail" ]] && exit 1
+while (($#)); do
+  if [[ "$1" == -H ]]; then printf '%s\n' "$2" >> "$TEST_ROOT/rcon-hosts"; break; fi
+  shift
+done
 printf 'players : %s humans, 0 bots (10 max)\n' "$(cat "$TEST_ROOT/humans")"
 EOF
 cat > "$TEST_ROOT/game/cs2-admin.sh" <<'EOF'
@@ -46,8 +50,10 @@ bash "$REPO/scripts/cs2-daily-home.sh" > "$TEST_ROOT/output" 2>&1
 [[ ! -e "$EVENTS" ]]
 rm "$TEST_ROOT/status-fail"
 
+printf 'RCON_HOST=127.0.0.2\n' >> "$CS2_DIR/.update.env"
 bash "$REPO/scripts/cs2-daily-home.sh" > "$TEST_ROOT/output"
 [[ "$(cat "$EVENTS")" == $'restart\ndefault' ]]
+[[ "$(sort -u "$TEST_ROOT/rcon-hosts")" == $'127.0.0.1\n127.0.0.2' ]]
 [[ "$(cat "$TEST_ROOT/game/toolkit-config/daily-home-done.txt")" == '2026-10-18' ]]
 bash "$REPO/scripts/cs2-daily-home.sh" > "$TEST_ROOT/output"
 [[ "$(cat "$EVENTS")" == $'restart\ndefault' ]]

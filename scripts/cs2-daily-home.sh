@@ -25,15 +25,11 @@ flock -n 9 || { echo '[daily-home] maintenance in progress; retrying later'; exi
 [[ "$(cat "$done_file" 2>/dev/null || true)" != "$today" ]] || exit 0
 
 players_empty() {
-  local output humans host="${HOST_IP:-127.0.0.1}" port="${PORT:-27015}"
+  local output humans host="${RCON_HOST:-${HOST_IP:-127.0.0.1}}" port="${PORT:-27015}"
   [[ -n "${RCON_PASS:-}" ]] || return 2
-  if [[ -x "$CS2_DIR/cs2-rcon.py" ]]; then
-    output="$(RCON_PASS="$RCON_PASS" "$CS2_DIR/cs2-rcon.py" -H "$host" -P "$port" status 2>/dev/null)" || return 2
-  else
-    command -v mcrcon >/dev/null || return 2
-    output="$(mcrcon -H "$host" -P "$port" -p "$RCON_PASS" status 2>/dev/null)" || return 2
-  fi
-  humans="$(printf '%s\n' "$output" | sed -nE 's/^[[:space:]]*players[[:space:]]*:[[:space:]]*([0-9]+) humans,.*/\1/p' | head -n 1)"
+  [[ -x "$CS2_DIR/cs2-rcon.py" ]] || return 2
+  output="$(RCON_PASS="$RCON_PASS" "$CS2_DIR/cs2-rcon.py" -H "$host" -P "$port" status 2>/dev/null)" || return 2
+  humans="$(printf '%s\n' "$output" | sed -nE 's/^[[:space:]]*players[[:space:]]*:[[:space:]]*([0-9]+)[[:space:]]+humans,.*/\1/p' | head -n 1)"
   [[ "$humans" =~ ^[0-9]+$ ]] || return 2
   (( humans == 0 ))
 }

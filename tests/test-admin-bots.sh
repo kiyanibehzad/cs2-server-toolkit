@@ -17,6 +17,10 @@ cat > "$TEST_ROOT/bin/mcrcon" <<'EOF'
 #!/usr/bin/env bash
 cmd="${!#}"
 printf '%s\n' "$cmd" >> "$EVENTS"
+if [[ -f "$TEST_ROOT/fail_on" && "$cmd" == "$(cat "$TEST_ROOT/fail_on")" ]]; then
+  rm -f "$TEST_ROOT/fail_on"
+  exit 1
+fi
 case "$cmd" in
   status) printf 'players : 1 humans, %s bots (10 max)\n' "$(cat "$TEST_ROOT/active")" ;;
   'exec cs2_toolkit.cfg')
@@ -39,6 +43,7 @@ exit 0
 EOF
 chmod +x "$TEST_ROOT/bin/"*
 export TEST_ROOT EVENTS="$TEST_ROOT/events" CS2_DIR="$TEST_ROOT/game" PATH="$TEST_ROOT/bin:$PATH"
+export RCON_CLIENT="$TEST_ROOT/bin/mcrcon"
 ADMIN="$REPO/scripts/cs2-admin.sh"
 
 "$ADMIN" bots-add 3 > "$TEST_ROOT/output"
@@ -51,8 +56,8 @@ grep -Fxq 'bot_quota 5' "$TEST_ROOT/game/game/csgo/cfg/cs2_toolkit.cfg"
 [[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '5 3 5' ]]
 [[ "$(cat "$TEST_ROOT/bot_difficulty")" == 3 ]]
 [[ "$(cat "$TEST_ROOT/sv_auto_adjust_bot_difficulty")" == 0 ]]
-! grep -Fxq 'bot_kick' "$EVENTS"
-! grep -Fxq 'exec cs2_toolkit.cfg' "$EVENTS"
+if grep -Fxq 'bot_kick' "$EVENTS"; then echo 'FAIL difficulty change kicked bots'; exit 1; fi
+if grep -Fxq 'exec cs2_toolkit.cfg' "$EVENTS"; then echo 'FAIL difficulty change reset bot mode'; exit 1; fi
 
 "$ADMIN" bot-off > "$TEST_ROOT/output"
 [[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '0 3 5' ]]
@@ -88,5 +93,31 @@ if "$ADMIN" bot-difficulty 4 > "$TEST_ROOT/output" 2>&1; then
   echo 'FAIL invalid difficulty accepted'; exit 1
 fi
 [[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '7 3 7' ]]
+
+printf 'exec cs2_toolkit.cfg\n' > "$TEST_ROOT/fail_on"
+if "$ADMIN" bot-quota 9 > "$TEST_ROOT/output" 2>&1; then
+  echo 'FAIL failed live bot change was reported as successful'; exit 1
+fi
+[[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '7 3 7' ]]
+grep -Fxq 'bot_quota 7' "$TEST_ROOT/game/game/csgo/cfg/cs2_toolkit.cfg"
+[[ "$(cat "$TEST_ROOT/bot_quota")" == 7 ]]
+
+printf 'bot_difficulty 1\n' > "$TEST_ROOT/fail_on"
+if "$ADMIN" bot-difficulty 1 > "$TEST_ROOT/output" 2>&1; then
+  echo 'FAIL failed live bot difficulty was reported as successful'; exit 1
+fi
+[[ "$(cat "$TEST_ROOT/game/toolkit-config/bots.txt")" == '7 3 7' ]]
+[[ "$(cat "$TEST_ROOT/bot_difficulty")" == 3 ]]
+
+rm -f "$TEST_ROOT/game/toolkit-config/bots.txt"
+"$TEST_ROOT/game/cs2-config.sh" sync
+printf 'fill\n' > "$TEST_ROOT/bot_quota_mode"
+"$ADMIN" bot-difficulty 1 > "$TEST_ROOT/output"
+[[ ! -e "$TEST_ROOT/game/toolkit-config/bots.txt" ]]
+[[ "$(cat "$TEST_ROOT/bot_quota_mode")" == fill ]]
+if grep -q '^bot_quota_mode ' "$TEST_ROOT/game/game/csgo/cfg/cs2_toolkit.cfg"; then
+  echo 'FAIL difficulty-only setting changed future bot mode'; exit 1
+fi
+grep -Fq 'for this map' "$TEST_ROOT/output"
 
 echo 'PASS bot_management_persistence_and_validation'
