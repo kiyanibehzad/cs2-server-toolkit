@@ -14,7 +14,7 @@ The installer downloads CS2 through SteamCMD, creates a user-level `systemd` ser
 
 ## Requirements
 
-- Ubuntu 22.04, 24.04, or 26.04 LTS on an x86_64 VPS or dedicated server; 24.04 remains the tested production baseline
+- Ubuntu 22.04, 24.04, or 26.04 LTS on an x86_64 VPS or dedicated server. Ubuntu 26.04.1 has been verified on an existing CS2 server upgraded from 24.04; a fresh 26.04 installation has not yet been field-tested.
 - At least 4 GB RAM (8 GB or more recommended) and 60 GiB free disk space before installation; 85 GiB or more leaves room for updates
 - A non-root Linux account with `sudo` access for installation
 - A [Steam Game Server Login Token](https://steamcommunity.com/dev/managegameservers) for a public server
